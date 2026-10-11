@@ -439,9 +439,11 @@ async function loadTikTokProfile() {
     });
 
     if (!response.ok) {
-      throw new Error("Profile request failed");
-    }
-
+      const errorText = await response.text();
+      throw new Error(
+        `Profile request failed: HTTP ${response.status} - ${errorText}`
+      );
+}
     const data = await response.json();
     console.log("TikTok profile response:", data);
 
@@ -481,9 +483,10 @@ async function loadTikTokProfile() {
     }
   } catch (error) {
     console.error("Could not restore TikTok connection:", error);
-    connectionLabel.textContent = "TikTok status unavailable";
-  }
+    connectionLabel.textContent = dashboardToken
+      ? "TikTok status unavailable"
+      : "Sign in to view TikTok";
+  } 
 }
 
-loadTikTokProfile();
 
