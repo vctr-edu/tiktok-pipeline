@@ -1,6 +1,17 @@
 
 const API_BASE_URL = "https://broken-reflection-api.onrender.com";
 const postForm = document.querySelector("#postForm");
+const file = document.querySelector("#videoFile");
+const caption = document.querySelector("#caption");
+const fileLabel = document.querySelector("#fileLabel");
+
+file.addEventListener("change", () => {
+  const selectedFile = file.files[0];
+
+  fileLabel.textContent = selectedFile
+    ? selectedFile.name
+    : "Choose a finished video";
+});
 
 // These controls are created in JavaScript to avoid requiring HTML changes.
 const publishingPanel = document.createElement("section");
@@ -225,6 +236,7 @@ postForm.addEventListener("submit", async (event) => {
   formData.append("disableDuet", String(!allowDuet.checked));
   formData.append("disableStitch", String(!allowStitch.checked));
 
+  
   const submitButton = postForm.querySelector('[type="submit"]');
   if (submitButton) submitButton.disabled = true;
 
