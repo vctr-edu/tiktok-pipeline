@@ -405,18 +405,27 @@ if (dashboardToken) {
 }
 
 // Connect TikTok button
-
 const connectionButton = document.querySelector("#connectButton");
 
 if (connectionButton) {
   connectionButton.addEventListener("click", () => {
+    console.log("Connect TikTok clicked");
+    console.log("Dashboard token exists:", Boolean(dashboardToken));
+
     if (!dashboardToken) {
+      alert("Please sign in to the dashboard first.");
       setDashboardStatus("Sign in before connecting TikTok.");
       return;
     }
 
-    window.location.href = `${API_BASE_URL}/tiktok/authorize`;
+    setDashboardStatus("Redirecting to TikTok authorization...");
+
+    window.location.assign(
+      `${API_BASE_URL}/tiktok/authorize`
+    );
   });
+} else {
+  console.error('Button "#connectButton" was not found.');
 }
 
 
