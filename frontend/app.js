@@ -282,10 +282,15 @@ async function checkPublishStatus(publishId) {
 
     setDashboardStatus(`TikTok status: ${data.status}`);
 
+
     if (data.status === "PUBLISH_COMPLETE") {
-      setDashboardStatus("TikTok reports that publishing is complete.");
-      return;
+      const postStatus = document.querySelector("#postStatus");
+      if (postStatus) {
+        postStatus.textContent = "TikTok reports that publishing is complete.";
+      }
+      return true;
     }
+
 
     if (data.status === "FAILED") {
       setDashboardStatus(
@@ -309,6 +314,9 @@ async function checkPublishStatus(publishId) {
 
 postForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  
+  const postStatus = document.querySelector("#postStatus");
+  if (postStatus) postStatus.textContent = "";
 
   if (!dashboardToken) {
     setDashboardStatus("Sign in before publishing.");
