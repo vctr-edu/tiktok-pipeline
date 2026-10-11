@@ -49,31 +49,44 @@ publishingPanel.style.cssText = `
   font: 12px Manrope, Arial, sans-serif;
 `;
 
+
 publishingPanel.innerHTML = `
   <h3 style="margin:0">TikTok publishing</h3>
+
   <label>
     Dashboard password
     <input id="dashboardPassword" type="password"
       autocomplete="current-password"
       style="display:block;width:100%;box-sizing:border-box;margin-top:6px">
   </label>
-  <button id="dashboardLogin" type="button">Sign in</button>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button id="dashboardLogin" type="button">Sign in</button>
+    <button id="dashboardLogout" type="button" hidden>Sign out</button>
+  </div>
+
   <p id="dashboardStatus" role="status" aria-live="polite">
     Sign in to load TikTok publishing settings.
   </p>
-  <label>
-    Privacy
-    <select id="privacySelect" disabled
-      style="display:block;width:100%;margin-top:6px"></select>
-  </label>
-  <label><input id="allowComments" type="checkbox" disabled> Allow comments</label>
-  <label><input id="allowDuet" type="checkbox" disabled> Allow Duet</label>
-  <label><input id="allowStitch" type="checkbox" disabled> Allow Stitch</label>
-  <label>
-    <input id="publishConsent" type="checkbox">
-    I confirm that I own or have permission to publish this video and want to send it to TikTok.
-  </label>
+
+  <div id="publishingSettings" hidden style="display:grid;gap:14px">
+    <label>
+      Privacy
+      <select id="privacySelect" disabled
+        style="display:block;width:100%;margin-top:6px"></select>
+    </label>
+
+    <label><input id="allowComments" type="checkbox" disabled> Allow comments</label>
+    <label><input id="allowDuet" type="checkbox" disabled> Allow Duet</label>
+    <label><input id="allowStitch" type="checkbox" disabled> Allow Stitch</label>
+
+    <label>
+      <input id="publishConsent" type="checkbox">
+      I confirm that I own or have permission to publish this video and want to send it to TikTok.
+    </label>
+  </div>
 `;
+
 
 const composerHeading = postForm.querySelector(".section-label");
 composerHeading.insertAdjacentElement("afterend", publishingPanel);
@@ -88,6 +101,8 @@ const allowComments = document.querySelector("#allowComments");
 const allowDuet = document.querySelector("#allowDuet");
 const allowStitch = document.querySelector("#allowStitch");
 const publishConsent = document.querySelector("#publishConsent");
+const dashboardLogout = document.querySelector("#dashboardLogout");
+const publishingSettings = document.querySelector("#publishingSettings");
 
 let dashboardToken = sessionStorage.getItem("br_dashboard_token");
 let creatorSettings = null;
@@ -185,17 +200,62 @@ dashboardLogin.addEventListener("click", async () => {
       throw new Error(data.error || "Sign-in failed.");
     }
 
-    dashboardToken = data.token;
-    sessionStorage.setItem("br_dashboard_token", dashboardToken);
-    dashboardPassword.value = "";
+  dashboardToken = data.token;
+  sessionStorage.setItem("br_dashboard_token", dashboardToken);
+  dashboardPassword.value = "";
 
-    await loadCreatorSettings();
+  dashboardLogin.hidden = true;
+  dashboardLogout.hidden = false;
+  dashboardPassword.parentElement.hidden = true;
+  publishingSettings.hidden = false;
+
+  await loadCreatorSettings();
+  await loadTikTokProfile();
+
   } catch (error) {
     setDashboardStatus(error.message);
   } finally {
     dashboardLogin.disabled = false;
   }
 });
+
+
+dashboardLogout.addEventListener("click", () => {
+  dashboardToken = null;
+  creatorSettings = null;
+
+  sessionStorage.removeItem("br_dashboard_token");
+
+  dashboardPassword.parentElement.hidden = false;
+  dashboardLogin.hidden = false;
+  dashboardLogout.hidden = true;
+  publishingSettings.hidden = true;
+
+  setPublishingControlsEnabled(false);
+
+  const connectionLabel = document.querySelector("#connectionLabel");
+  const connectionButton = document.querySelector("#connectButton");
+  const connectionStatus = document.querySelector("#connectionStatus");
+
+  connectionLabel.textContent = "Connect TikTok";
+  connectionButton.classList.remove("connected");
+
+  const avatar = connectionButton.querySelector("img.tiktok-mark");
+  if (avatar) {
+    const icon = document.createElement("span");
+    icon.className = "tiktok-mark";
+    icon.textContent = "♪";
+    avatar.replaceWith(icon);
+  }
+
+  if (connectionStatus) {
+    connectionStatus.textContent = "Connect";
+  }
+
+  setDashboardStatus("Signed out. Sign in to continue.");
+});
+
+
 
 async function checkPublishStatus(publishId) {
   const startedAt = Date.now();
@@ -323,7 +383,23 @@ postForm.addEventListener("submit", async (event) => {
 
 // A token in sessionStorage is short-lived, but still clear it when the tab closes.
 if (dashboardToken) {
-  loadCreatorSettings().catch(error => {
+  dashboardPassword.parentElement.hidden = true;
+  dashboardLogin.hidden = true;
+  dashboardLogout.hidden = false;
+  publishingSettings.hidden = false;
+
+  Promise.all([
+    loadCreatorSettings(),
+    loadTikTokProfile()
+  ]).catch(error => {
+    dashboardToken = null;
+    sessionStorage.removeItem("br_dashboard_token");
+
+    dashboardPassword.parentElement.hidden = false;
+    dashboardLogin.hidden = false;
+    dashboardLogout.hidden = true;
+    publishingSettings.hidden = true;
+
     setDashboardStatus(error.message);
   });
 }
@@ -333,6 +409,15 @@ const connectionButton = document.querySelector("#connectButton");
 
 if (connectionButton) {
   connectionButton.addEventListener("click", () => {
+    if (!dashboardToken) {
+      setDashboardStatus("Sign in before connecting TikTok.");
+      return;
+    }
+
+    if (connectionButton.classList.contains("connected")) {
+      return;
+    }
+
     window.location.href = `${API_BASE_URL}/tiktok/authorize`;
   });
 }
@@ -347,7 +432,10 @@ async function loadTikTokProfile() {
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/tiktok/profile`, {
-      cache: "no-store"
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${dashboardToken}`
+      }
     });
 
     if (!response.ok) {

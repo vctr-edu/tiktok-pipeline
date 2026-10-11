@@ -694,7 +694,7 @@ app.get('/tiktok/callback', async (req, res) => {
 
 // Public profile endpoint retained for frontend compatibility.
 // Protect this endpoint before using the app in production.
-app.get('/api/tiktok/profile', async (req, res) => {
+app.get('/api/tiktok/profile', requireDashboard, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT open_id, access_token_enc
