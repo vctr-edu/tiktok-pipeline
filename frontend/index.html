@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#050a13" />
+    <title>Broken Reflection — New Post</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="aurora aurora-left"></div>
+    <div class="aurora aurora-right"></div>
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="Broken Reflection home">
+        <img src="../assets/broken-reflection-app-icon.png" alt="Broken Reflection" />
+        <span>BROKEN<br />REFLECTION</span>
+      </a>
+      <nav>
+        <a href="#overview"><span>◌</span> Overview</a>
+        <a href="#library"><span>◫</span> Library</a>
+        <a class="active" href="#post"><span>＋</span> New post</a>
+        <a href="#queue"><span>◷</span> Queue</a>
+        <a href="#analytics"><span>⌁</span> Analytics</a>
+      </nav>
+      <div class="sidebar-footer"><span class="signal"></span> Local system online</div>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">CONTENT STUDIO / TIKTOK</p>
+          <h1>Create a new post</h1>
+          <p class="subheading">Compose, preview and prepare your next release.</p>
+        </div>
+        <button class="account-chip" id="connectButton"><span class="tiktok-mark">♪</span><span id="connectionLabel">Connect TikTok</span></button>
+      </header>
+
+      <section class="workspace">
+        <div class="preview-column">
+          <div class="section-label"><span>01</span> POST PREVIEW</div>
+          <div class="phone-frame">
+            <div class="cosmos">
+              <div class="stars"></div>
+              <div class="planet"></div>
+              <div class="orbit"></div>
+              <div class="astronaut"></div>
+              <div class="preview-copy"><p>LOST IN<br />THE VOID</p><small>BROKEN REFLECTION</small></div>
+              <div class="preview-bottom"><span>Original sound · Broken Reflection</span><b>♪</b></div>
+            </div>
+          </div>
+          <p class="preview-meta">9:16 · 1080 × 1920 · 120 FPS</p>
+        </div>
+
+        <form class="composer" id="postForm">
+          <div class="section-label"><span>02</span> POST DETAILS</div>
+          <label class="upload-zone" for="videoFile">
+            <input id="videoFile" type="file" accept="video/*" />
+            <span class="upload-icon">↑</span>
+            <strong id="fileLabel">Choose a finished video</strong>
+            <small>MP4 · Vertical · Rendered locally</small>
+          </label>
+
+          <label class="field-label" for="caption">Caption</label>
+          <textarea id="caption" maxlength="2200" placeholder="Share the moment behind this sound..."></textarea>
+          <div class="caption-tools"><span id="counter">0 / 2200</span><button type="button" id="hashtagButton">+ Add hashtags</button></div>
+
+          <div class="split-fields">
+            <div>
+              <label class="field-label" for="track">Track</label>
+              <select id="track">
+                <option>Shadow Surge</option>
+                <option>Shadow Zone</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="visibility">Visibility</label>
+              <select id="visibility"><option>Only me — Sandbox</option><option>Public</option></select>
+            </div>
+          </div>
+
+          <div class="checks">
+            <label><input type="checkbox" checked /> Comments enabled</label>
+            <label><input type="checkbox" checked /> Duet enabled</label>
+            <label><input type="checkbox" checked /> Stitch enabled</label>
+          </div>
+
+          <div class="quality-bar"><span class="quality-dot"></span><div><strong>Ready for quality check</strong><small>Audio, captions and rights will be validated before publishing.</small></div></div>
+          <button class="publish-button" type="submit"><span>✦</span> Prepare post</button>
+          <p class="form-note" id="formNote">TikTok is not connected yet. This screen is visual only.</p>
+        </form>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
