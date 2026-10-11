@@ -280,3 +280,12 @@ if (dashboardToken) {
     setDashboardStatus(error.message);
   });
 }
+
+// Connect TikTok button
+const connectionButton = document.querySelector("#connectButton");
+
+if (connectionButton) {
+  connectionButton.addEventListener("click", () => {
+    window.location.href = `${API_BASE_URL}/tiktok/authorize`;
+  });
+}
