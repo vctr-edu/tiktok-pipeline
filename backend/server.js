@@ -21,7 +21,10 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+    );
   }
 
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -29,6 +32,350 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+
+
+const multer = require("multer");
+
+const MAX_VIDEO_BYTES = 128 * 1024 * 1024;
+const CHUNK_SIZE = 10 * 1024 * 1024;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const allowed = new Set([
+      "video/mp4",
+      "video/quicktime",
+      "video/webm"
+    ]);
+
+    if (!allowed.has(file.mimetype)) {
+      return cb(new Error("Unsupported video type."));
+    }
+
+    cb(null, true);
+  }
+});
+
+function createDashboardToken() {
+  const secret = process.env.DASHBOARD_SESSION_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("Dashboard session configuration is missing.");
+  }
+
+  const payload = Buffer.from(JSON.stringify({
+    exp: Date.now() + 2 * 60 * 60 * 1000
+  })).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", secret)
+    .update(payload)
+    .digest("base64url");
+
+  return `${payload}.${signature}`;
+}
+
+function requireDashboard(req, res, next) {
+  try {
+    const secret = process.env.DASHBOARD_SESSION_SECRET;
+    const token = (req.get("Authorization") || "").replace(/^Bearer /, "");
+    const [payload, signature] = token.split(".");
+
+    if (!secret || !payload || !signature) {
+      return res.status(401).json({ error: "Sign in to continue." });
+    }
+
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(payload)
+      .digest();
+
+    const actual = Buffer.from(signature, "base64url");
+
+    if (
+      actual.length !== expected.length ||
+      !crypto.timingSafeEqual(actual, expected)
+    ) {
+      return res.status(401).json({ error: "Invalid session." });
+    }
+
+    const session = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8")
+    );
+
+    if (!Number.isFinite(session.exp) || session.exp < Date.now()) {
+      return res.status(401).json({ error: "Session expired. Sign in again." });
+    }
+
+    next();
+  } catch {
+    return res.status(401).json({ error: "Invalid session." });
+  }
+}
+
+async function getStoredTikTokAccount() {
+  const result = await pool.query(
+    `SELECT open_id, access_token_enc
+     FROM tiktok_tokens
+     ORDER BY updated_at DESC
+     LIMIT 1`
+  );
+
+  if (!result.rowCount) {
+    throw new Error("Connect a TikTok Sandbox account first.");
+  }
+
+  return {
+    openId: result.rows[0].open_id,
+    accessToken: decryptToken(result.rows[0].access_token_enc)
+  };
+}
+
+async function tiktokJson(path, accessToken, body) {
+  const response = await fetch(`https://open.tiktokapis.com${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || data.error?.code !== "ok") {
+    // Do not expose tokens, upload URLs, or raw provider responses.
+    throw new Error(`TikTok API request failed (${data.error?.code || response.status}).`);
+  }
+
+  return data.data;
+}
+
+// Dashboard sign-in. Do not log the submitted password.
+app.post("/api/dashboard/login", (req, res) => {
+  const configuredPassword = process.env.DASHBOARD_PASSWORD;
+  const suppliedPassword = req.body?.password;
+
+  if (!configuredPassword || typeof suppliedPassword !== "string") {
+    return res.status(401).json({ error: "Invalid credentials." });
+  }
+
+  const a = Buffer.from(suppliedPassword);
+  const b = Buffer.from(configuredPassword);
+
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ error: "Invalid credentials." });
+  }
+
+  try {
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ token: createDashboardToken(), expiresIn: 7200 });
+  } catch {
+    return res.status(500).json({ error: "Dashboard authentication is not configured." });
+  }
+});
+
+// Always query the latest creator settings before composing a Direct Post.
+app.get("/api/tiktok/creator-info", requireDashboard, async (req, res) => {
+  try {
+    const { accessToken } = await getStoredTikTokAccount();
+    const data = await tiktokJson(
+      "/v2/post/publish/creator_info/query/",
+      accessToken,
+      {}
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({
+      username: data.creator_username || "",
+      nickname: data.creator_nickname || "",
+      privacyOptions: data.privacy_level_options || [],
+      commentDisabled: Boolean(data.comment_disabled),
+      duetDisabled: Boolean(data.duet_disabled),
+      stitchDisabled: Boolean(data.stitch_disabled),
+      maxVideoDurationSec: data.max_video_post_duration_sec || null
+    });
+  } catch {
+    return res.status(502).json({
+      error: "Could not retrieve creator settings. Reconnect TikTok if necessary."
+    });
+  }
+});
+
+// Upload one video as a Direct Post. Requires explicit consent in the request.
+app.post(
+  "/api/tiktok/publish",
+  requireDashboard,
+  (req, res, next) => {
+    upload.single("video")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          error: err.code === "LIMIT_FILE_SIZE"
+            ? "Video exceeds the 128 MB limit."
+            : "Choose a valid MP4, MOV, or WebM video."
+        });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Select a video first." });
+      }
+
+      if (req.file.size < 5 * 1024 * 1024) {
+        return res.status(400).json({
+          error: "Video must be at least 5 MB for this upload configuration."
+        });
+      }
+
+      const caption = req.body.caption;
+      const privacy = req.body.privacy;
+      const consent = req.body.consent === "true";
+
+      if (typeof caption !== "string" || caption.length > 2200) {
+        return res.status(400).json({
+          error: "Caption is required and must be no longer than 2,200 characters."
+        });
+      }
+
+      if (!consent) {
+        return res.status(400).json({
+          error: "Confirm that you want to send this video to TikTok."
+        });
+      }
+
+      const { accessToken } = await getStoredTikTokAccount();
+
+      // The privacy selection must come from the latest creator-info response.
+      const creator = await tiktokJson(
+        "/v2/post/publish/creator_info/query/",
+        accessToken,
+        {}
+      );
+
+      const privacyOptions = creator.privacy_level_options || [];
+
+      if (!privacyOptions.includes(privacy)) {
+        return res.status(400).json({
+          error: "That privacy setting is not currently allowed by TikTok."
+        });
+      }
+
+      // Conservative default for a Sandbox / unaudited client.
+      if (process.env.TIKTOK_ENV === "sandbox" && privacy !== "SELF_ONLY") {
+        return res.status(400).json({
+          error: "Sandbox testing is restricted to SELF_ONLY visibility."
+        });
+      }
+
+      const size = req.file.size;
+      const chunkSize = Math.min(CHUNK_SIZE, size);
+      const totalChunks = Math.ceil(size / chunkSize);
+
+      const init = await tiktokJson(
+        "/v2/post/publish/video/init/",
+        accessToken,
+        {
+          post_info: {
+            title: caption,
+            privacy_level: privacy,
+            disable_comment: req.body.disableComment === "true",
+            disable_duet: req.body.disableDuet === "true",
+            disable_stitch: req.body.disableStitch === "true"
+          },
+          source_info: {
+            source: "FILE_UPLOAD",
+            video_size: size,
+            chunk_size: chunkSize,
+            total_chunk_count: totalChunks
+          }
+        }
+      );
+
+      if (!init.publish_id || !init.upload_url) {
+        throw new Error("TikTok did not return upload details.");
+      }
+
+      // Use TikTok's returned upload URL exactly as provided.
+      for (let index = 0; index < totalChunks; index++) {
+        const start = index * chunkSize;
+        const endExclusive = Math.min(start + chunkSize, size);
+        const chunk = req.file.buffer.subarray(start, endExclusive);
+        const endInclusive = endExclusive - 1;
+
+        const mimeType = {
+          "video/mp4": "video/mp4",
+          "video/quicktime": "video/quicktime",
+          "video/webm": "video/webm"
+        }[req.file.mimetype];
+
+        const response = await fetch(init.upload_url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": mimeType,
+            "Content-Length": String(chunk.length),
+            "Content-Range": `bytes ${start}-${endInclusive}/${size}`
+          },
+          body: chunk
+        });
+
+        if (!response.ok) {
+          throw new Error("TikTok video upload failed.");
+        }
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({
+        publishId: init.publish_id,
+        status: "PROCESSING_UPLOAD",
+        message: "Video uploaded to TikTok. Check status for the result."
+      });
+    } catch (error) {
+      // Return only a generic message; never expose credentials or upload URLs.
+      const message = error.message === "Connect a TikTok Sandbox account first."
+        ? error.message
+        : "Publishing failed. Check the connection and try again.";
+
+      return res.status(502).json({ error: message });
+    }
+  }
+);
+
+// Check status using the publish ID returned by the upload endpoint.
+app.post("/api/tiktok/publish-status", requireDashboard, async (req, res) => {
+  try {
+    const publishId = req.body?.publishId;
+
+    if (
+      typeof publishId !== "string" ||
+      publishId.length < 1 ||
+      publishId.length > 64
+    ) {
+      return res.status(400).json({ error: "Invalid publish ID." });
+    }
+
+    const { accessToken } = await getStoredTikTokAccount();
+    const data = await tiktokJson(
+      "/v2/post/publish/status/fetch/",
+      accessToken,
+      { publish_id: publishId }
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({
+      status: data.status,
+      failReason: data.fail_reason || null,
+      uploadedBytes: data.uploaded_bytes ?? null
+    });
+  } catch {
+    return res.status(502).json({
+      error: "Could not retrieve publishing status."
+    });
+  }
+});
+
 
 function getEncryptionKey() {
   const value = process.env.TOKEN_ENCRYPTION_KEY;
