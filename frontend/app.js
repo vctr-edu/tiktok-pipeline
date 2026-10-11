@@ -48,8 +48,7 @@ fetch(`${API_BASE_URL}/api/health`)
 
 // TikTok OAuth will be connected after we implement its backend routes.
 connectionButton.addEventListener("click", () => {
-  note.textContent =
-    "TikTok authorization is not implemented yet.";
+  window.location.href = `${API_BASE_URL}/tiktok/authorize`;
 });
 
 document.querySelector("#postForm").addEventListener("submit", (event) => {
