@@ -119,12 +119,15 @@ function setDashboardStatus(message) {
   dashboardStatus.textContent = message;
 }
 
+
 function setPublishingControlsEnabled(enabled) {
   privacySelect.disabled = !enabled;
-  allowComments.disabled = !enabled || creatorSettings?.commentDisabled;
-  allowDuet.disabled = !enabled || creatorSettings?.duetDisabled;
-  allowStitch.disabled = !enabled || creatorSettings?.stitchDisabled;
+
+  allowComments.disabled = !enabled;
+  allowDuet.disabled = !enabled;
+  allowStitch.disabled = !enabled;
 }
+
 
 async function dashboardFetch(path, options = {}) {
   if (!dashboardToken) {
@@ -219,10 +222,6 @@ dashboardLogin.addEventListener("click", async () => {
   await loadCreatorSettings();
   await loadTikTokProfile();
 
-  if (!tiktokConnected) {
-    connectTikTok();
-  }
-
   } catch (error) {
     setDashboardStatus(error.message);
   } finally {
@@ -314,7 +313,7 @@ async function checkPublishStatus(publishId) {
 
 postForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  
+
   const postStatus = document.querySelector("#postStatus");
   if (postStatus) postStatus.textContent = "";
 
@@ -424,15 +423,10 @@ if (dashboardToken) {
 }
 
 function connectTikTok() {
-  if (!dashboardToken) {
-    setDashboardStatus("Sign in before connecting TikTok.");
-    return;
-  }
-
   setDashboardStatus("Redirecting to TikTok authorization...");
-
   window.location.assign(`${API_BASE_URL}/tiktok/authorize`);
 }
+
 
 // Connect TikTok button
 const connectionButton = document.querySelector("#connectButton");
@@ -513,27 +507,3 @@ async function loadTikTokProfile() {
 }
 
 
-// Automatic TikTok authorization on dashboard visit
-if (!tiktokConnected) {
-  if (dashboardToken) {
-    connectTikTok();
-  } else {
-    setDashboardStatus("Sign in to the dashboard to connect TikTok.");
-  }
-} else {
-  setDashboardStatus("TikTok authorization completed. Loading profile...");
-
-  if (dashboardToken) {
-    Promise.all([
-      loadCreatorSettings(),
-      loadTikTokProfile()
-      
-    ]).catch(error => {
-      setDashboardStatus(error.message);
-    });
-  } else {
-    setDashboardStatus(
-      "TikTok connected successfully. Sign in to access the dashboard."
-    );
-  }
-}
