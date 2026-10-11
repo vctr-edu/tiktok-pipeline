@@ -1,17 +1,11 @@
 
-const API_BASE_URL = "https://YOUR-BACKEND-DOMAIN";
+const API_BASE_URL = "https://broken-reflection-api.onrender.com";
 
 const caption = document.querySelector("#caption");
 const counter = document.querySelector("#counter");
 const file = document.querySelector("#videoFile");
 const fileLabel = document.querySelector("#fileLabel");
 const note = document.querySelector("#formNote");
-const connectionButton = document.querySelector("#connectButton");
-const connectionLabel = document.querySelector("#connectionLabel");
-
-const apiConfigured =
-  API_BASE_URL.startsWith("https://") &&
-  !API_BASE_URL.includes("YOUR-BACKEND-DOMAIN");
 
 caption.addEventListener("input", () => {
   counter.textContent = `${caption.value.length} / 2200`;
@@ -33,53 +27,33 @@ document.querySelector("#hashtagButton").addEventListener("click", () => {
   caption.dispatchEvent(new Event("input"));
 });
 
-async function checkTikTokConnection() {
-  if (!apiConfigured) {
-    note.textContent =
-      "Frontend online. Configure your backend URL to connect TikTok.";
-    return;
-  }
+const connectionButton = document.querySelector("#connectButton");
+const connectionLabel = document.querySelector("#connectionLabel");
 
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}/api/tiktok/status`,
-      { credentials: "include" }
-    );
-
+// Check whether the Render backend is reachable.
+fetch(`${API_BASE_URL}/api/health`)
+  .then((response) => {
     if (!response.ok) {
-      throw new Error("Status request failed");
+      throw new Error("Backend health check failed");
     }
-
-    const status = await response.json();
-
-    if (status.connected) {
-      connectionLabel.textContent = "TikTok connected";
-      connectionButton.classList.add("connected");
-      note.textContent = "TikTok account authorized.";
-    } else {
-      note.textContent = "Connect your TikTok account to continue.";
-    }
-  } catch {
+    return response.json();
+  })
+  .then((data) => {
+    note.textContent = `Backend connected: ${data.status}`;
+  })
+  .catch(() => {
     note.textContent =
-      "Could not reach the backend. Check its availability and CORS settings.";
-  }
-}
+      "Backend unavailable. It may be starting up; try again shortly.";
+  });
 
+// TikTok OAuth will be connected after we implement its backend routes.
 connectionButton.addEventListener("click", () => {
-  if (!apiConfigured) {
-    note.textContent = "Configure your backend URL first.";
-    return;
-  }
-
-  window.location.assign(
-    `${API_BASE_URL}/api/tiktok/authorize`
-  );
+  note.textContent =
+    "TikTok authorization is not implemented yet.";
 });
 
 document.querySelector("#postForm").addEventListener("submit", (event) => {
   event.preventDefault();
   note.textContent =
-    "Post prepared for review. Publishing is not connected yet.";
+    "Post prepared visually. Publishing is not connected yet.";
 });
-
-checkTikTokConnection();
