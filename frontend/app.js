@@ -4,6 +4,24 @@ const postForm = document.querySelector("#postForm");
 const file = document.querySelector("#videoFile");
 const caption = document.querySelector("#caption");
 const fileLabel = document.querySelector("#fileLabel");
+const hashtagButton = document.querySelector("#hashtagButton");
+const counter = document.querySelector("#counter");
+
+hashtagButton.addEventListener("click", () => {
+  const tags = "#brokenreflection #wavephonk #ambient";
+
+  const existingTags = caption.value.includes("#brokenreflection");
+
+  if (!existingTags) {
+    caption.value += `${caption.value.trim() ? "\n\n" : ""}${tags}`;
+  }
+
+  caption.dispatchEvent(new Event("input", { bubbles: true }));
+
+  if (counter) {
+    counter.textContent = `${caption.value.length} / 2200`;
+  }
+});
 
 file.addEventListener("change", () => {
   const selectedFile = file.files[0];
