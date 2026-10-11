@@ -405,6 +405,7 @@ if (dashboardToken) {
 }
 
 // Connect TikTok button
+
 const connectionButton = document.querySelector("#connectButton");
 
 if (connectionButton) {
@@ -414,13 +415,10 @@ if (connectionButton) {
       return;
     }
 
-    if (connectionButton.classList.contains("connected")) {
-      return;
-    }
-
     window.location.href = `${API_BASE_URL}/tiktok/authorize`;
   });
 }
+
 
 // Restore TikTok connection status on page load
 
