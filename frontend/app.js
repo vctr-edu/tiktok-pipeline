@@ -14,9 +14,22 @@ file.addEventListener("change", () => {
 });
 
 // These controls are created in JavaScript to avoid requiring HTML changes.
+
 const publishingPanel = document.createElement("section");
-publishingPanel.style.cssText =
-  "display:grid;gap:12px;margin-top:20px;padding:16px;border:1px solid #444;border-radius:12px;";
+publishingPanel.id = "publishingPanel";
+
+publishingPanel.style.cssText = `
+  display: grid;
+  gap: 14px;
+  margin-top: 0;
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid rgba(159,194,255,.16);
+  border-radius: 14px;
+  background: rgba(4,11,20,.35);
+  color: #eef5ff;
+  font: 12px Manrope, Arial, sans-serif;
+`;
 
 publishingPanel.innerHTML = `
   <h3 style="margin:0">TikTok publishing</h3>
@@ -44,7 +57,10 @@ publishingPanel.innerHTML = `
   </label>
 `;
 
-postForm.appendChild(publishingPanel);
+const composerHeading = postForm.querySelector(".section-label");
+composerHeading.insertAdjacentElement("afterend", publishingPanel);
+publishingPanel.style.marginTop = "0";
+publishingPanel.style.marginBottom = "24px";
 
 const dashboardPassword = document.querySelector("#dashboardPassword");
 const dashboardLogin = document.querySelector("#dashboardLogin");
