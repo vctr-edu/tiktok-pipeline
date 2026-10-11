@@ -1,4 +1,5 @@
 
+const API_BASE_URL = "https://broken-reflection-api.onrender.com";
 const postForm = document.querySelector("#postForm");
 
 // These controls are created in JavaScript to avoid requiring HTML changes.
