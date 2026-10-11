@@ -131,9 +131,18 @@ if (params.has("tiktok")) {
   );
 }
 
+
 function setDashboardStatus(message) {
   dashboardStatus.textContent = message;
 }
+
+function setPostStatus(message) {
+  const postStatus = document.querySelector("#postStatus");
+  if (postStatus) {
+    postStatus.textContent = message;
+  }
+}
+
 
 
 function setPublishingControlsEnabled(enabled) {
@@ -295,7 +304,7 @@ async function checkPublishStatus(publishId) {
       body: JSON.stringify({ publishId })
     });
 
-    setDashboardStatus(`TikTok status: ${data.status}`);
+    setPostStatus(`TikTok status: ${data.status}`);
 
 
     if (data.status === "PUBLISH_COMPLETE") {
@@ -308,27 +317,28 @@ async function checkPublishStatus(publishId) {
 
 
     if (data.status === "FAILED") {
-      setDashboardStatus(
+      setPostStatus(
         `TikTok publishing failed: ${data.failReason || "Unknown reason"}`
       );
       return;
     }
 
     if (data.status === "SEND_TO_USER_INBOX") {
-      setDashboardStatus(
+      setPostStatus(
         "Video sent to TikTok. Open TikTok to finish the post in your inbox."
       );
       return;
     }
   }
 
-  setDashboardStatus(
+  setPostStatus(
     `Still processing. Use publish ID ${publishId} to check again later.`
   );
 }
 
 postForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  setPostStatus("");
 
   const postStatus = document.querySelector("#postStatus");
   if (postStatus) postStatus.textContent = "";
@@ -381,7 +391,7 @@ postForm.addEventListener("submit", async (event) => {
       xhr.upload.onprogress = event => {
         if (event.lengthComputable) {
           const percent = Math.round(event.loaded / event.total * 100);
-          setDashboardStatus(`Sending video to backend: ${percent}%`);
+          setPostStatus(`Sending video to backend: ${percent}%`);
         }
       };
 
@@ -409,7 +419,7 @@ postForm.addEventListener("submit", async (event) => {
 
     await checkPublishStatus(currentPublishId);
   } catch (error) {
-    setDashboardStatus(error.message);
+    setPostStatus(error.message);
   } finally {
     if (submitButton) submitButton.disabled = false;
   }
