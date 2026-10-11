@@ -302,3 +302,39 @@ if (connectionButton) {
     window.location.href = `${API_BASE_URL}/tiktok/authorize`;
   });
 }
+
+// Restore TikTok connection status on page load
+async function loadTikTokProfile() {
+  const connectionLabel = document.querySelector("#connectionLabel");
+  const connectionButton = document.querySelector("#connectButton");
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/tiktok/profile`);
+    if (!response.ok) throw new Error("Profile request failed");
+
+    const data = await response.json();
+
+    if (data.connected && data.profileAvailable && data.profile) {
+      connectionLabel.textContent =
+        data.profile.displayName || "TikTok connected";
+
+      connectionButton.classList.add("connected");
+
+      const icon = connectionButton.querySelector(".tiktok-mark");
+
+      if (icon && data.profile.avatarUrl) {
+        const avatar = document.createElement("img");
+        avatar.src = data.profile.avatarUrl;
+        avatar.alt = "TikTok profile";
+        avatar.style.cssText =
+          "width:28px;height:28px;border-radius:50%;object-fit:cover;";
+
+        icon.replaceWith(avatar);
+      }
+    }
+  } catch (error) {
+    console.error("Could not restore TikTok connection:", error);
+  }
+}
+
+loadTikTokProfile();
