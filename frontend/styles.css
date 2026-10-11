@@ -13,3 +13,31 @@ main{max-width:1390px;margin-left:244px;padding:55px clamp(30px,6vw,96px) 70px;p
 .composer{padding:29px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(145deg,rgba(20,35,57,.78),rgba(8,16,28,.65));box-shadow:0 24px 80px rgba(0,0,0,.2);}.upload-zone{border:1px dashed rgba(154,200,247,.35);min-height:114px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(4,11,20,.35);cursor:pointer;transition:.2s;margin:23px 0 28px}.upload-zone:hover{border-color:#86c9ff;background:rgba(29,63,96,.18)}.upload-zone input{display:none}.upload-icon{font-size:25px;color:#9bd5ff;line-height:1}.upload-zone strong{font-size:13px;margin-top:7px}.upload-zone small,.quality-bar small{font-size:10px;color:#7d8da3;margin-top:4px}.field-label{display:block;font:500 10px 'DM Mono';letter-spacing:1.5px;color:#b2c8df;margin-bottom:9px}textarea,select{width:100%;font:13px Manrope;color:#edf6ff;border:1px solid rgba(153,191,230,.22);border-radius:9px;background:rgba(4,11,20,.52);outline:none;padding:12px;transition:.2s}textarea{height:112px;resize:vertical}textarea:focus,select:focus{border-color:#77c5ff;box-shadow:0 0 0 3px rgba(91,174,240,.11)}select{height:43px}.caption-tools{display:flex;justify-content:space-between;margin:8px 1px 23px;color:#74859a;font:10px 'DM Mono'}.caption-tools button{background:none;border:0;color:#8ecbff;font:10px 'DM Mono';cursor:pointer}.split-fields{display:grid;grid-template-columns:1fr 1fr;gap:15px}.checks{display:flex;gap:18px;flex-wrap:wrap;margin:27px 0 23px;color:#aebdce;font-size:11px}.checks label{display:flex;gap:7px;align-items:center}.checks input{accent-color:#7fc8ff}.quality-bar{display:flex;gap:11px;align-items:flex-start;border:1px solid rgba(99,194,160,.2);background:rgba(34,114,91,.1);border-radius:10px;padding:13px;margin-bottom:15px}.quality-bar strong{display:block;font-size:11px;color:#d6f9e8}.quality-bar small{display:block}.quality-dot{width:8px;height:8px;background:#72e4b2;border-radius:50%;margin-top:4px;box-shadow:0 0 12px #72e4b2}.publish-button{width:100%;border:0;border-radius:10px;padding:15px;color:#05101c;background:linear-gradient(110deg,#81ceff,#d7edff);font:700 12px Manrope;letter-spacing:.3px;cursor:pointer;transition:.2s}.publish-button:hover{filter:brightness(1.08);transform:translateY(-1px)}.publish-button span{font-size:15px;margin-right:7px}.form-note{text-align:center;margin:12px 0 0;font-size:10px;color:#718096}
 @media(max-width:900px){.sidebar{position:static;width:100%;height:auto;flex-direction:row;align-items:center;padding:14px}.brand{padding:0;flex:1}.sidebar nav{display:flex;gap:3px}.sidebar nav a{font-size:0;padding:8px}.sidebar nav span{font-size:18px}.sidebar-footer{display:none}main{margin:0;padding:34px 25px}.workspace{grid-template-columns:1fr;gap:40px}.preview-column>.section-label{align-self:center}}@media(max-width:580px){header{display:block}.account-chip{margin-top:20px}.split-fields{grid-template-columns:1fr}.workspace{display:block}.preview-column{margin-bottom:38px}.composer{padding:20px}.checks{gap:11px}}
 .account-chip.connected{border-color:rgba(98,226,169,.6);color:#cffff0}.account-chip.connected .tiktok-mark{color:#72e4b2}
+
+.site-footer {
+  position: relative;
+  z-index: 1;
+  margin: 30px 0 0 244px;
+  padding: 20px 0;
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.site-footer a {
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .site-footer {
+    margin-left: 0;
+  }
+}
