@@ -338,37 +338,59 @@ if (connectionButton) {
 }
 
 // Restore TikTok connection status on page load
+
 async function loadTikTokProfile() {
   const connectionLabel = document.querySelector("#connectionLabel");
   const connectionButton = document.querySelector("#connectButton");
 
+  if (!connectionLabel || !connectionButton) return;
+
   try {
-    const response = await fetch(`${API_BASE_URL}/api/tiktok/profile`);
-    if (!response.ok) throw new Error("Profile request failed");
+    const response = await fetch(`${API_BASE_URL}/api/tiktok/profile`, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error("Profile request failed");
+    }
 
     const data = await response.json();
+    console.log("TikTok profile response:", data);
 
-    if (data.connected && data.profileAvailable && data.profile) {
+    const profile = data.profile;
+
+    if (data.connected && profile) {
       connectionLabel.textContent =
-        data.profile.displayName || "TikTok connected";
+        profile.displayName || "TikTok connected";
 
       connectionButton.classList.add("connected");
 
-      const icon = connectionButton.querySelector(".tiktok-mark");
+      if (profile.avatarUrl) {
+        let avatar = connectionButton.querySelector(".tiktok-mark");
 
-      if (icon && data.profile.avatarUrl) {
-        const avatar = document.createElement("img");
-        avatar.src = data.profile.avatarUrl;
-        avatar.alt = "TikTok profile";
-        avatar.style.cssText =
-          "width:28px;height:28px;border-radius:50%;object-fit:cover;";
+        if (avatar && avatar.tagName !== "IMG") {
+          const image = document.createElement("img");
+          image.className = "tiktok-mark";
+          image.alt = "TikTok profile";
+          image.style.cssText =
+            "width:28px;height:28px;border-radius:50%;object-fit:cover;";
+          avatar.replaceWith(image);
+          avatar = image;
+        }
 
-        icon.replaceWith(avatar);
+        if (avatar && avatar.tagName === "IMG") {
+          avatar.src = profile.avatarUrl;
+        }
       }
+    } else {
+      connectionLabel.textContent = "Connect TikTok";
+      connectionButton.classList.remove("connected");
     }
   } catch (error) {
     console.error("Could not restore TikTok connection:", error);
+    connectionLabel.textContent = "TikTok status unavailable";
   }
 }
 
 loadTikTokProfile();
+
