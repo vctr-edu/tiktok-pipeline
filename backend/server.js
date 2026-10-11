@@ -202,6 +202,206 @@ app.get("/api/tiktok/creator-info", requireDashboard, async (req, res) => {
   }
 });
 
+
+const multer = require("multer");
+
+const MAX_VIDEO_BYTES = 128 * 1024 * 1024;
+const CHUNK_SIZE = 10 * 1024 * 1024;
+
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
+  fileFilter: (req, file, callback) => {
+    const allowedTypes = new Set([
+      "video/mp4",
+      "video/quicktime",
+      "video/webm"
+    ]);
+
+    if (!allowedTypes.has(file.mimetype)) {
+      return callback(new Error("Unsupported video type."));
+    }
+
+    callback(null, true);
+  }
+});
+
+async function getStoredTikTokAccount() {
+  const result = await pool.query(
+    `SELECT open_id, access_token_enc
+     FROM tiktok_tokens
+     ORDER BY updated_at DESC
+     LIMIT 1`
+  );
+
+  if (!result.rowCount) {
+    throw new Error("Connect a TikTok account first.");
+  }
+
+  return {
+    openId: result.rows[0].open_id,
+    accessToken: decryptToken(result.rows[0].access_token_enc)
+  };
+}
+
+async function tiktokJson(path, accessToken, body) {
+  const response = await fetch(
+    `https://open.tiktokapis.com${path}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8"
+      },
+      body: JSON.stringify(body)
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok || data.error?.code !== "ok") {
+    throw new Error(
+      `TikTok API error: ${data.error?.code || response.status}`
+    );
+  }
+
+  return data.data;
+}
+
+app.post(
+  "/api/tiktok/publish",
+  requireDashboard,
+  (req, res, next) => {
+    videoUpload.single("video")(req, res, error => {
+      if (error) {
+        return res.status(400).json({
+          error: error.code === "LIMIT_FILE_SIZE"
+            ? "Video exceeds the 128 MB limit."
+            : "Choose a valid MP4, MOV, or WebM video."
+        });
+      }
+
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: "Select a video first."
+        });
+      }
+
+      if (req.file.size < 5 * 1024 * 1024) {
+        return res.status(400).json({
+          error: "Video must be at least 5 MB for this upload configuration."
+        });
+      }
+
+      const { caption, privacy, consent } = req.body;
+
+      if (typeof caption !== "string" || caption.length > 2200) {
+        return res.status(400).json({
+          error: "Caption must not exceed 2,200 characters."
+        });
+      }
+
+      if (consent !== "true") {
+        return res.status(400).json({
+          error: "Confirm consent before publishing."
+        });
+      }
+
+      const { accessToken } = await getStoredTikTokAccount();
+
+      const creator = await tiktokJson(
+        "/v2/post/publish/creator_info/query/",
+        accessToken,
+        {}
+      );
+
+      if (!(creator.privacy_level_options || []).includes(privacy)) {
+        return res.status(400).json({
+          error: "TikTok does not allow this privacy setting."
+        });
+      }
+
+      if (
+        process.env.TIKTOK_ENV === "sandbox" &&
+        privacy !== "SELF_ONLY"
+      ) {
+        return res.status(400).json({
+          error: "Sandbox testing must use SELF_ONLY visibility."
+        });
+      }
+
+      const size = req.file.size;
+      const chunkSize = Math.min(CHUNK_SIZE, size);
+      const totalChunks = Math.ceil(size / chunkSize);
+
+      const init = await tiktokJson(
+        "/v2/post/publish/video/init/",
+        accessToken,
+        {
+          post_info: {
+            title: caption,
+            privacy_level: privacy,
+            disable_comment: req.body.disableComment === "true",
+            disable_duet: req.body.disableDuet === "true",
+            disable_stitch: req.body.disableStitch === "true"
+          },
+          source_info: {
+            source: "FILE_UPLOAD",
+            video_size: size,
+            chunk_size: chunkSize,
+            total_chunk_count: totalChunks
+          }
+        }
+      );
+
+      if (!init.publish_id || !init.upload_url) {
+        throw new Error("TikTok did not return upload details.");
+      }
+
+      for (let index = 0; index < totalChunks; index++) {
+        const start = index * chunkSize;
+        const endExclusive = Math.min(start + chunkSize, size);
+        const chunk = req.file.buffer.subarray(start, endExclusive);
+
+        const uploadResponse = await fetch(init.upload_url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": req.file.mimetype,
+            "Content-Length": String(chunk.length),
+            "Content-Range":
+              `bytes ${start}-${endExclusive - 1}/${size}`
+          },
+          body: chunk
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error("TikTok video upload failed.");
+        }
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        publishId: init.publish_id,
+        status: "PROCESSING_UPLOAD",
+        message: "Video uploaded. Check TikTok processing status."
+      });
+    } catch (error) {
+      console.error("TikTok publishing error:", error.message);
+
+      return res.status(502).json({
+        error: "Publishing failed. Check Render logs for details."
+      });
+    }
+  }
+);
+
+
 // Upload one video as a Direct Post. Requires explicit consent in the request.
 app.post(
   "/api/tiktok/publish",
