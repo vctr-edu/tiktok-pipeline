@@ -280,6 +280,79 @@ app.get("/tiktok/callback", async (req, res) => {
   }
 });
 
+
+
+app.get("/api/tiktok/profile", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT open_id, access_token_enc
+       FROM tiktok_tokens
+       ORDER BY updated_at DESC
+       LIMIT 1`
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({
+        connected: false,
+        message: "No TikTok account is connected."
+      });
+    }
+
+    const { open_id, access_token_enc } = result.rows[0];
+    const accessToken = decryptToken(access_token_enc);
+
+    const response = await fetch(
+      "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
+    );
+
+    const data = await response.json();
+
+    if (
+      !response.ok ||
+      data.error?.code !== "ok" ||
+      !data.data?.user
+    ) {
+      return res.status(502).json({
+        connected: true,
+        profileAvailable: false,
+        message:
+          "TikTok authorization is saved, but profile retrieval failed. The token may have expired or the Sandbox may restrict this API."
+      });
+    }
+
+    const user = data.data.user;
+
+    // Ensure the returned profile belongs to the stored connection.
+    if (user.open_id !== open_id) {
+      return res.status(502).json({
+        connected: true,
+        profileAvailable: false,
+        message: "TikTok returned an unexpected account."
+      });
+    }
+
+    return res.json({
+      connected: true,
+      profileAvailable: true,
+      profile: {
+        displayName: user.display_name || "TikTok user",
+        avatarUrl: user.avatar_url || null
+      }
+    });
+  } catch {
+    return res.status(500).json({
+      connected: false,
+      message: "Unable to retrieve the TikTok profile."
+    });
+  }
+});
+
 // Backend-only refresh endpoint. Do not call this from the public frontend.
 app.post("/internal/tiktok/refresh", async (req, res) => {
   // Require a separate secret before enabling this endpoint.
