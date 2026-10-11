@@ -110,6 +110,16 @@ if (params.get("tiktok") === "connected") {
   sessionStorage.setItem("br_tiktok_connected", "true");
 }
 
+async function refreshTikTokProfile() {
+  if (!dashboardToken) return;
+
+  try {
+    await loadTikTokProfile();
+  } catch (error) {
+    console.error("Failed to load TikTok profile:", error);
+  }
+}
+
 const tiktokConnected =
   sessionStorage.getItem("br_tiktok_connected") === "true";
 
@@ -227,6 +237,7 @@ dashboardLogin.addEventListener("click", async () => {
 
   await loadCreatorSettings();
   await loadTikTokProfile();
+  
 
   } catch (error) {
     setDashboardStatus(error.message);
