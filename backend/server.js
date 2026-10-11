@@ -435,12 +435,6 @@ app.post(
         });
       }
 
-      if (req.file.size < 5 * 1024 * 1024) {
-        return res.status(400).json({
-          error: 'Video must be at least 5 MB for this upload configuration.'
-        });
-      }
-
       const { caption, privacy, consent } = req.body;
 
       if (typeof caption !== 'string' || caption.length > 2200) {
