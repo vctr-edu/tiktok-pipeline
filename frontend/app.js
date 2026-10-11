@@ -364,6 +364,11 @@ async function loadTikTokProfile() {
         profile.displayName || "TikTok connected";
 
       connectionButton.classList.add("connected");
+      const status = document.querySelector("#connectionStatus");
+
+      if (status) {
+        status.textContent = "Connected";
+      }
 
       if (profile.avatarUrl) {
         let avatar = connectionButton.querySelector(".tiktok-mark");
