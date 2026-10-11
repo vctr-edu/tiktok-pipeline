@@ -105,7 +105,13 @@ let currentPublishId = null;
 
 
 const params = new URLSearchParams(window.location.search);
-const tiktokConnected = params.get("tiktok") === "connected";
+
+if (params.get("tiktok") === "connected") {
+  sessionStorage.setItem("br_tiktok_connected", "true");
+}
+
+const tiktokConnected =
+  sessionStorage.getItem("br_tiktok_connected") === "true";
 
 if (params.has("tiktok")) {
   window.history.replaceState(
@@ -247,7 +253,6 @@ dashboardLogout.addEventListener("click", () => {
   const connectionButton = document.querySelector("#connectButton");
   const connectionStatus = document.querySelector("#connectionStatus");
 
-  connectionLabel.textContent = "Connect TikTok";
   connectionButton.classList.remove("connected");
 
   const avatar = connectionButton.querySelector("img.tiktok-mark");
@@ -433,6 +438,15 @@ const connectionButton = document.querySelector("#connectButton");
 
 if (connectionButton) {
   connectionButton.addEventListener("click", connectTikTok);
+
+  if (tiktokConnected) {
+    const connectionLabel = document.querySelector("#connectionLabel");
+    const connectionStatus = document.querySelector("#connectionStatus");
+
+    connectionLabel.textContent = "Broken Reflection";
+    connectionStatus.textContent = "Connected";
+    connectionButton.classList.add("connected");
+  }
 }
 else {
   console.error('Button "#connectButton" was not found.');
