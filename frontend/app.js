@@ -75,11 +75,6 @@ publishingPanel.innerHTML = `
       <select id="privacySelect" disabled
         style="display:block;width:100%;margin-top:6px"></select>
     </label>
-
-    <label><input id="allowComments" type="checkbox" disabled> Allow comments</label>
-    <label><input id="allowDuet" type="checkbox" disabled> Allow Duet</label>
-    <label><input id="allowStitch" type="checkbox" disabled> Allow Stitch</label>
-
     <label>
       <input id="publishConsent" type="checkbox">
       I confirm that I own or have permission to publish this video and want to send it to TikTok.
@@ -107,6 +102,18 @@ const publishingSettings = document.querySelector("#publishingSettings");
 let dashboardToken = sessionStorage.getItem("br_dashboard_token");
 let creatorSettings = null;
 let currentPublishId = null;
+
+
+const params = new URLSearchParams(window.location.search);
+const tiktokConnected = params.get("tiktok") === "connected";
+
+if (params.has("tiktok")) {
+  window.history.replaceState(
+    {},
+    document.title,
+    window.location.pathname
+  );
+}
 
 function setDashboardStatus(message) {
   dashboardStatus.textContent = message;
@@ -211,6 +218,10 @@ dashboardLogin.addEventListener("click", async () => {
 
   await loadCreatorSettings();
   await loadTikTokProfile();
+
+  if (!tiktokConnected) {
+    connectTikTok();
+  }
 
   } catch (error) {
     setDashboardStatus(error.message);
@@ -404,27 +415,24 @@ if (dashboardToken) {
   });
 }
 
+function connectTikTok() {
+  if (!dashboardToken) {
+    setDashboardStatus("Sign in before connecting TikTok.");
+    return;
+  }
+
+  setDashboardStatus("Redirecting to TikTok authorization...");
+
+  window.location.assign(`${API_BASE_URL}/tiktok/authorize`);
+}
+
 // Connect TikTok button
 const connectionButton = document.querySelector("#connectButton");
 
 if (connectionButton) {
-  connectionButton.addEventListener("click", () => {
-    console.log("Connect TikTok clicked");
-    console.log("Dashboard token exists:", Boolean(dashboardToken));
-
-    if (!dashboardToken) {
-      alert("Please sign in to the dashboard first.");
-      setDashboardStatus("Sign in before connecting TikTok.");
-      return;
-    }
-
-    setDashboardStatus("Redirecting to TikTok authorization...");
-
-    window.location.assign(
-      `${API_BASE_URL}/tiktok/authorize`
-    );
-  });
-} else {
+  connectionButton.addEventListener("click", connectTikTok);
+}
+else {
   console.error('Button "#connectButton" was not found.');
 }
 
@@ -497,3 +505,27 @@ async function loadTikTokProfile() {
 }
 
 
+// Automatic TikTok authorization on dashboard visit
+if (!tiktokConnected) {
+  if (dashboardToken) {
+    connectTikTok();
+  } else {
+    setDashboardStatus("Sign in to the dashboard to connect TikTok.");
+  }
+} else {
+  setDashboardStatus("TikTok authorization completed. Loading profile...");
+
+  if (dashboardToken) {
+    Promise.all([
+      loadCreatorSettings(),
+      loadTikTokProfile()
+      
+    ]).catch(error => {
+      setDashboardStatus(error.message);
+    });
+  } else {
+    setDashboardStatus(
+      "TikTok connected successfully. Sign in to access the dashboard."
+    );
+  }
+}

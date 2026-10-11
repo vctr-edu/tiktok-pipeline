@@ -667,23 +667,11 @@ app.get('/tiktok/callback', async (req, res) => {
       redirect_uri: REDIRECT_URI
     });
 
-    await saveTokens(data);
-
-    return res.status(200).send(`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Broken Reflection — Connected</title>
-</head>
-<body style="font-family:Arial,sans-serif;max-width:640px;margin:60px auto;padding:24px;line-height:1.6">
-  <h1>TikTok connected successfully</h1>
-  <p>Your authorization tokens were received and encrypted in the database.</p>
-  <p>Return to the dashboard to sign in and test private Sandbox publishing.</p>
-  <a href="https://vctr-edu.github.io/tiktok-pipeline/">Return to Broken Reflection</a>
-</body>
-</html>`);
-  } catch (error) {
+    await saveTokens(data);    
+    return res.redirect(
+    'https://vctr-edu.github.io/tiktok-pipeline/?tiktok=connected'
+    );} 
+    catch (error) {
     console.error('TikTok callback failed:', error.message);
 
     return res.status(500).send(
