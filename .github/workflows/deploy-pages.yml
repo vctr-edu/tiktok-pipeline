@@ -33,6 +33,7 @@ jobs:
         run: |
           mkdir -p _site/assets
           cp -R frontend/. _site/
+          cp frontend/styles.css _site/styles.css
           cp terms.html privacy.html _site/
           cp -R assets/. _site/assets/
 
