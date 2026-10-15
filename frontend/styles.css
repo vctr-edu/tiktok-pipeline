@@ -36,6 +36,44 @@ main{max-width:1390px;margin-left:244px;padding:55px clamp(30px,6vw,96px) 70px;p
   text-decoration: underline;
 }
 
+.legal-main {
+  max-width: 940px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: clamp(35px, 7vw, 80px) 28px 24px;
+}
+
+.legal-back {
+  display: inline-block;
+  margin-bottom: 25px;
+  color: #9fcaf0;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.legal-back:hover,
+.legal-card a { color: var(--blue); }
+
+.legal-card {
+  position: relative;
+  z-index: 1;
+  padding: clamp(26px, 5vw, 52px);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(20,35,57,.78), rgba(8,16,28,.75));
+  box-shadow: 0 24px 80px rgba(0,0,0,.2);
+  line-height: 1.8;
+  color: #c4d0df;
+}
+
+.legal-card h1 { margin-bottom: 0; }
+.legal-card h2 { margin: 30px 0 8px; color: var(--text); font-size: 17px; }
+.legal-card p { font-size: 14px; }
+.legal-card .subheading { margin-bottom: 32px; }
+.legal-updated { margin-top: 36px; color: var(--muted); font: 11px 'DM Mono', monospace; }
+.legal-footer { margin: 22px 0 0; }
+.legal-footer a[aria-current="page"] { color: var(--text); }
+
 @media (max-width: 900px) {
   .site-footer {
     margin-left: 0;
