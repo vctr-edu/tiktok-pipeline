@@ -434,9 +434,9 @@ app.post(
 
       const { caption, privacy, consent } = req.body;
 
-      if (typeof caption !== 'string' || caption.length > 2200) {
+      if (caption !== undefined && (typeof caption !== 'string' || caption.length > 2200)) {
         return res.status(400).json({
-          error: 'Caption is required and must be no longer than 2,200 characters.'
+          error: 'Caption must be no longer than 2,200 characters.'
         });
       }
 
@@ -472,18 +472,21 @@ app.post(
       const size = req.file.size;
       const chunkSize = Math.min(CHUNK_SIZE, size);
       const totalChunks = Math.ceil(size / chunkSize);
+      const postInfo = {
+        privacy_level: privacy,
+        disable_comment: req.body.disableComment === 'true',
+        disable_duet: req.body.disableDuet === 'true',
+        disable_stitch: req.body.disableStitch === 'true'
+      };
+      if (typeof caption === 'string' && caption.trim()) {
+        postInfo.title = caption;
+      }
 
       const init = await tiktokJson(
         '/v2/post/publish/video/init/',
         accessToken,
         {
-          post_info: {
-            title: caption,
-            privacy_level: privacy,
-            disable_comment: req.body.disableComment === 'true',
-            disable_duet: req.body.disableDuet === 'true',
-            disable_stitch: req.body.disableStitch === 'true'
-          },
+          post_info: postInfo,
           source_info: {
             source: 'FILE_UPLOAD',
             video_size: size,
