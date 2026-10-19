@@ -168,16 +168,19 @@ function requireDashboard(req, res, next) {
   }
 }
 
-function getSandboxCredentials() {
-  if (process.env.TIKTOK_ENV !== 'sandbox') {
-    throw new Error('TikTok environment is not set to sandbox.');
-  }
-
-  const clientKey = process.env.TIKTOK_CLIENT_KEY_SANDBOX;
-  const clientSecret = process.env.TIKTOK_CLIENT_SECRET_SANDBOX;
+function getTikTokCredentials() {
+  const isSandbox = process.env.TIKTOK_ENV === 'sandbox';
+  const clientKey = isSandbox
+    ? process.env.TIKTOK_CLIENT_KEY_SANDBOX
+    : process.env.TIKTOK_CLIENT_KEY;
+  const clientSecret = isSandbox
+    ? process.env.TIKTOK_CLIENT_SECRET_SANDBOX
+    : process.env.TIKTOK_CLIENT_SECRET;
 
   if (!clientKey || !clientSecret) {
-    throw new Error('TikTok Sandbox credentials are missing.');
+    throw new Error(isSandbox
+      ? 'TikTok Sandbox credentials are missing.'
+      : 'TikTok production credentials are missing.');
   }
 
   return { clientKey, clientSecret };
@@ -205,7 +208,7 @@ function readCookies(header = '') {
 }
 
 async function exchangeToken(fields) {
-  const { clientKey, clientSecret } = getSandboxCredentials();
+  const { clientKey, clientSecret } = getTikTokCredentials();
 
   const body = new URLSearchParams({
     client_key: clientKey,
@@ -232,36 +235,31 @@ async function exchangeToken(fields) {
 }
 
 async function saveTokens(data) {
-  if (!data.open_id || !data.access_token || !data.refresh_token) {
+  if (!data.open_id || !data.access_token) {
     throw new Error('TikTok returned an incomplete token response.');
+  }
+  if (!(data.scope || '').split(',').includes('video.publish')) {
+    throw new Error('TikTok authorization did not grant the video.publish scope.');
   }
 
   await pool.query(
     `INSERT INTO tiktok_tokens (
       open_id,
       access_token_enc,
-      refresh_token_enc,
       access_expires_at,
-      refresh_expires_at,
       scopes,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    VALUES ($1, $2, $3, $4, NOW())
     ON CONFLICT (open_id) DO UPDATE SET
       access_token_enc = EXCLUDED.access_token_enc,
-      refresh_token_enc = EXCLUDED.refresh_token_enc,
       access_expires_at = EXCLUDED.access_expires_at,
-      refresh_expires_at = EXCLUDED.refresh_expires_at,
       scopes = EXCLUDED.scopes,
       updated_at = NOW()`,
     [
       data.open_id,
       encryptToken(data.access_token),
-      encryptToken(data.refresh_token),
       new Date(Date.now() + Number(data.expires_in || 0) * 1000),
-      new Date(
-        Date.now() + Number(data.refresh_expires_in || 0) * 1000
-      ),
       data.scope || ''
     ]
   );
@@ -276,7 +274,7 @@ async function getStoredTikTokAccount() {
   );
 
   if (!result.rowCount) {
-    throw new Error('Connect a TikTok Sandbox account first.');
+    throw new Error('Connect a TikTok account first.');
   }
 
   return {
@@ -410,7 +408,6 @@ app.get('/api/tiktok/creator-info', requireDashboard, async (req, res) => {
 });
 
 // Direct Post upload.
-// Sandbox requests are restricted to SELF_ONLY visibility.
 app.post(
   '/api/tiktok/publish',
   requireDashboard,
@@ -533,7 +530,7 @@ app.post(
       console.error('TikTok publishing failed:', error.message);
 
       const message =
-        error.message === 'Connect a TikTok Sandbox account first.'
+        error.message === 'Connect a TikTok account first.'
           ? error.message
           : 'Publishing failed. Check Render logs for details.';
 
@@ -584,7 +581,7 @@ app.post('/api/tiktok/publish-status', requireDashboard, async (req, res) => {
 
 app.get('/tiktok/authorize', (req, res) => {
   try {
-    const { clientKey } = getSandboxCredentials();
+    const { clientKey } = getTikTokCredentials();
     getEncryptionKey();
 
     const state = crypto.randomBytes(32).toString('hex');
@@ -609,8 +606,9 @@ app.get('/tiktok/authorize', (req, res) => {
       `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`
     );
   } catch {
+    console.error('TikTok authorization configuration failed.');
     return res.status(500).send(
-      'TikTok Sandbox configuration is incomplete.'
+      'TikTok authorization configuration is incomplete. Check the Render environment variables.'
     );
   }
 });
@@ -749,71 +747,23 @@ app.get('/api/tiktok/profile', requireDashboard, async (req, res) => {
   }
 });
 
-// Internal endpoint for token refresh.
-// Never call this endpoint from the public frontend.
-app.post('/internal/tiktok/refresh', async (req, res) => {
-  const expected = process.env.INTERNAL_API_SECRET;
-  const supplied = req.get('Authorization');
-
-  if (!expected || supplied !== `Bearer ${expected}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  const openId = req.body?.open_id;
-
-  if (typeof openId !== 'string' || !openId) {
-    return res.status(400).json({
-      error: 'open_id is required'
-    });
-  }
-
-  try {
-    const result = await pool.query(
-      'SELECT refresh_token_enc FROM tiktok_tokens WHERE open_id = $1',
-      [openId]
-    );
-
-    if (!result.rowCount) {
-      return res.status(404).json({
-        error: 'No stored connection found'
-      });
-    }
-
-    const refreshToken = decryptToken(
-      result.rows[0].refresh_token_enc
-    );
-
-    const data = await exchangeToken({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken
-    });
-
-    await saveTokens({
-      ...data,
-      open_id: data.open_id || openId
-    });
-
-    return res.json({ status: 'refreshed' });
-  } catch (error) {
-    console.error('Token refresh failed:', error.message);
-
-    return res.status(500).json({
-      error: 'Token refresh failed. Reauthorization may be required.'
-    });
-  }
-});
-
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tiktok_tokens (
       open_id TEXT PRIMARY KEY,
       access_token_enc TEXT NOT NULL,
-      refresh_token_enc TEXT NOT NULL,
       access_expires_at TIMESTAMPTZ,
-      refresh_expires_at TIMESTAMPTZ,
       scopes TEXT NOT NULL DEFAULT '',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  // Remove legacy refresh-token storage; this app now requires reauthorization
+  // after the user access token expires.
+  await pool.query(`
+    ALTER TABLE tiktok_tokens
+      DROP COLUMN IF EXISTS refresh_token_enc,
+      DROP COLUMN IF EXISTS refresh_expires_at
   `);
 
   app.listen(PORT, '0.0.0.0', () => {
