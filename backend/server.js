@@ -14,6 +14,7 @@ const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/';
 const MAX_VIDEO_BYTES = 128 * 1024 * 1024;
 const CHUNK_SIZE = 10 * 1024 * 1024;
 const DASHBOARD_SESSION_MS = 2 * 60 * 60 * 1000;
+const TOKEN_REFRESH_EARLY_MS = 10 * 60 * 1000;
 
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is not configured.');
@@ -228,14 +229,16 @@ async function exchangeToken(fields) {
   const data = await response.json();
 
   if (!response.ok || data.error || !data.access_token) {
-    throw new Error('TikTok token request failed.');
+    const code = data.error || response.status;
+    const detail = data.error_description ? `: ${data.error_description}` : '';
+    throw new Error(`TikTok token request failed (${code})${detail}.`);
   }
 
   return data;
 }
 
 async function saveTokens(data) {
-  if (!data.open_id || !data.access_token) {
+  if (!data.open_id || !data.access_token || !data.refresh_token) {
     throw new Error('TikTok returned an incomplete token response.');
   }
   if (!(data.scope || '').split(',').includes('video.publish')) {
@@ -246,57 +249,149 @@ async function saveTokens(data) {
     `INSERT INTO tiktok_tokens (
       open_id,
       access_token_enc,
+      refresh_token_enc,
       access_expires_at,
+      refresh_expires_at,
       scopes,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, NOW())
     ON CONFLICT (open_id) DO UPDATE SET
       access_token_enc = EXCLUDED.access_token_enc,
+      refresh_token_enc = EXCLUDED.refresh_token_enc,
       access_expires_at = EXCLUDED.access_expires_at,
+      refresh_expires_at = EXCLUDED.refresh_expires_at,
       scopes = EXCLUDED.scopes,
       updated_at = NOW()`,
     [
       data.open_id,
       encryptToken(data.access_token),
+      encryptToken(data.refresh_token),
       new Date(Date.now() + Number(data.expires_in || 0) * 1000),
+      new Date(Date.now() + Number(data.refresh_expires_in || 0) * 1000),
       data.scope || ''
     ]
   );
 }
 
-async function getStoredTikTokAccount() {
-  const result = await pool.query(
-    `SELECT open_id, access_token_enc
-     FROM tiktok_tokens
-     ORDER BY updated_at DESC
-     LIMIT 1`
-  );
+async function getStoredTikTokAccount({ forceRefresh = false, rejectedAccessToken = null } = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT open_id, access_token_enc, refresh_token_enc,
+              access_expires_at, refresh_expires_at, scopes
+       FROM tiktok_tokens
+       ORDER BY updated_at DESC
+       LIMIT 1
+       FOR UPDATE`
+    );
 
-  if (!result.rowCount) {
-    throw new Error('Connect a TikTok account first.');
+    if (!result.rowCount) {
+      throw new Error('Connect a TikTok account first.');
+    }
+
+    const account = result.rows[0];
+    const storedAccessToken = decryptToken(account.access_token_enc);
+    const accessExpiresAt = account.access_expires_at
+      ? new Date(account.access_expires_at).getTime()
+      : 0;
+    const shouldRefresh = (forceRefresh && storedAccessToken === rejectedAccessToken) ||
+      !Number.isFinite(accessExpiresAt) ||
+      accessExpiresAt <= Date.now() + TOKEN_REFRESH_EARLY_MS;
+
+    if (shouldRefresh) {
+      if (!account.refresh_token_enc) {
+        throw new Error('TikTok connection needs authorization again to enable automatic renewal.');
+      }
+
+      const refreshExpiresAt = account.refresh_expires_at
+        ? new Date(account.refresh_expires_at).getTime()
+        : 0;
+      if (refreshExpiresAt && refreshExpiresAt <= Date.now()) {
+        throw new Error('TikTok refresh authorization expired. Reconnect the account.');
+      }
+
+      const refreshed = await exchangeToken({
+        grant_type: 'refresh_token',
+        refresh_token: decryptToken(account.refresh_token_enc)
+      });
+      if (refreshed.open_id !== account.open_id || !refreshed.refresh_token) {
+        throw new Error('TikTok returned incomplete or mismatched refresh credentials. Reconnect the account.');
+      }
+
+      const scopes = refreshed.scope || account.scopes || '';
+      if (!scopes.split(',').includes('video.publish')) {
+        throw new Error('Renewed TikTok authorization does not include video.publish. Reconnect the account.');
+      }
+
+      const expiresIn = Number(refreshed.expires_in);
+      const refreshExpiresIn = Number(refreshed.refresh_expires_in);
+      if (!Number.isFinite(expiresIn) || expiresIn <= 0 || !Number.isFinite(refreshExpiresIn) || refreshExpiresIn <= 0) {
+        throw new Error('TikTok returned invalid token expiry information. Reconnect the account.');
+      }
+
+      await client.query(
+        `UPDATE tiktok_tokens
+         SET access_token_enc = $2,
+             refresh_token_enc = $3,
+             access_expires_at = $4,
+             refresh_expires_at = $5,
+             scopes = $6,
+             updated_at = NOW()
+         WHERE open_id = $1`,
+        [
+          account.open_id,
+          encryptToken(refreshed.access_token),
+          encryptToken(refreshed.refresh_token),
+          new Date(Date.now() + expiresIn * 1000),
+          new Date(Date.now() + refreshExpiresIn * 1000),
+          scopes
+        ]
+      );
+
+      await client.query('COMMIT');
+      return { openId: account.open_id, accessToken: refreshed.access_token };
+    }
+
+    await client.query('COMMIT');
+    return {
+      openId: account.open_id,
+      accessToken: storedAccessToken
+    };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
   }
-
-  return {
-    openId: result.rows[0].open_id,
-    accessToken: decryptToken(result.rows[0].access_token_enc)
-  };
 }
 
 async function tiktokJson(path, accessToken, body) {
-  const response = await fetch(
-    `https://open.tiktokapis.com${path}`,
-    {
+  const request = token => fetch(`https://open.tiktokapis.com${path}`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json; charset=UTF-8'
       },
       body: JSON.stringify(body)
-    }
-  );
+  });
 
-  const data = await response.json().catch(() => ({}));
+  let response = await request(accessToken);
+  let data = await response.json().catch(() => ({}));
+
+  const tokenError = /(?:invalid|expired|revoked).*access.?token|access.?token.*(?:invalid|expired|revoked)/i
+    .test(String(data.error?.code || ''));
+  if (response.status === 401 || tokenError) {
+    const refreshed = await getStoredTikTokAccount({
+      forceRefresh: true,
+      rejectedAccessToken: accessToken
+    });
+    if (refreshed.accessToken !== accessToken) {
+      response = await request(refreshed.accessToken);
+      data = await response.json().catch(() => ({}));
+    }
+  }
 
   if (!response.ok || data.error?.code !== 'ok') {
     throw new Error(
@@ -401,6 +496,28 @@ app.get('/api/tiktok/creator-info', requireDashboard, async (req, res) => {
   } catch (error) {
     console.error('Creator settings request failed:', error.message);
 
+    const reason = String(error.message || '');
+    if (reason.includes('invalid_grant') || reason.includes('refresh authorization expired')) {
+      return res.status(401).json({
+        error: 'TikTok authorization has expired. Reconnect the account once to restore automatic renewal.'
+      });
+    }
+    if (reason.includes('spam_risk_too_many_posts')) {
+      return res.status(429).json({
+        error: 'TikTok temporarily paused posting for this account. Please try again later.'
+      });
+    }
+    if (reason.includes('spam_risk_user_banned_from_posting')) {
+      return res.status(403).json({
+        error: 'TikTok currently does not allow this account to publish. Check the account in TikTok.'
+      });
+    }
+    if (reason.includes('reached_active_user_cap')) {
+      return res.status(429).json({
+        error: 'The current TikTok publishing capacity has been reached. Please try again later.'
+      });
+    }
+
     return res.status(502).json({
       error: 'Could not retrieve creator settings. Reconnect TikTok if necessary.'
     });
@@ -460,6 +577,24 @@ app.post(
         });
       }
 
+      const maxDuration = Number(creator.max_video_post_duration_sec || 0);
+      const durationSeconds = Number(req.body.durationSeconds || 0);
+      if (maxDuration > 0 && (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > maxDuration)) {
+        return res.status(400).json({
+          error: durationSeconds > maxDuration
+            ? `This TikTok account can post videos up to ${maxDuration} seconds.`
+            : 'Could not read the video duration. Choose another video and try again.'
+        });
+      }
+
+      const brandOrganic = req.body.brandOrganic === 'true';
+      const brandContent = req.body.brandContent === 'true';
+      if ((brandOrganic || brandContent) && brandContent && privacy === 'SELF_ONLY') {
+        return res.status(400).json({
+          error: 'Branded content cannot be posted with the Only you privacy setting.'
+        });
+      }
+
       if (
         process.env.TIKTOK_ENV === 'sandbox' &&
         privacy !== 'SELF_ONLY'
@@ -474,9 +609,11 @@ app.post(
       const totalChunks = Math.ceil(size / chunkSize);
       const postInfo = {
         privacy_level: privacy,
-        disable_comment: req.body.disableComment === 'true',
-        disable_duet: req.body.disableDuet === 'true',
-        disable_stitch: req.body.disableStitch === 'true'
+        disable_comment: Boolean(creator.comment_disabled) || req.body.allowComments !== 'true',
+        disable_duet: Boolean(creator.duet_disabled) || req.body.allowDuet !== 'true',
+        disable_stitch: Boolean(creator.stitch_disabled) || req.body.allowStitch !== 'true',
+        brand_organic_toggle: brandOrganic,
+        brand_content_toggle: brandContent
       };
       if (typeof caption === 'string' && caption.trim()) {
         postInfo.title = caption;
@@ -535,6 +672,8 @@ app.post(
       const message =
         error.message === 'Connect a TikTok account first.'
           ? error.message
+          : error.message.includes('invalid_grant') || error.message.includes('refresh authorization expired')
+            ? 'TikTok authorization has expired. Reconnect the account once to restore automatic renewal.'
           : 'Publishing failed. Check Render logs for details.';
 
       return res.status(502).json({ error: message });
@@ -679,23 +818,7 @@ app.get('/tiktok/callback', async (req, res) => {
 // Protect this endpoint before using the app in production.
 app.get('/api/tiktok/profile', requireDashboard, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT open_id, access_token_enc
-       FROM tiktok_tokens
-       ORDER BY updated_at DESC
-       LIMIT 1`
-    );
-
-    if (!result.rowCount) {
-      return res.status(404).json({
-        connected: false,
-        profileAvailable: false,
-        message: 'No TikTok account is connected.'
-      });
-    }
-
-    const { open_id, access_token_enc } = result.rows[0];
-    const accessToken = decryptToken(access_token_enc);
+    const { openId, accessToken } = await getStoredTikTokAccount();
 
     const response = await fetch(
       'https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url',
@@ -723,7 +846,7 @@ app.get('/api/tiktok/profile', requireDashboard, async (req, res) => {
 
     const user = data.data.user;
 
-    if (user.open_id !== open_id) {
+    if (user.open_id !== openId) {
       return res.status(502).json({
         connected: true,
         profileAvailable: false,
@@ -755,18 +878,18 @@ async function start() {
     CREATE TABLE IF NOT EXISTS tiktok_tokens (
       open_id TEXT PRIMARY KEY,
       access_token_enc TEXT NOT NULL,
+      refresh_token_enc TEXT,
       access_expires_at TIMESTAMPTZ,
+      refresh_expires_at TIMESTAMPTZ,
       scopes TEXT NOT NULL DEFAULT '',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 
-  // Remove legacy refresh-token storage; this app now requires reauthorization
-  // after the user access token expires.
   await pool.query(`
     ALTER TABLE tiktok_tokens
-      DROP COLUMN IF EXISTS refresh_token_enc,
-      DROP COLUMN IF EXISTS refresh_expires_at
+      ADD COLUMN IF NOT EXISTS refresh_token_enc TEXT,
+      ADD COLUMN IF NOT EXISTS refresh_expires_at TIMESTAMPTZ
   `);
 
   app.listen(PORT, '0.0.0.0', () => {
