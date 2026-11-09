@@ -15,6 +15,10 @@ const MAX_VIDEO_BYTES = 128 * 1024 * 1024;
 const CHUNK_SIZE = 10 * 1024 * 1024;
 const DASHBOARD_SESSION_MS = 2 * 60 * 60 * 1000;
 const TOKEN_REFRESH_EARLY_MS = 10 * 60 * 1000;
+const TIKTOK_ACCOUNTS = Object.freeze({
+  tsr_music: 'TSR Music',
+  broken_reflection: 'Broken Reflection'
+});
 
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is not configured.');
@@ -237,7 +241,16 @@ async function exchangeToken(fields) {
   return data;
 }
 
-async function saveTokens(data) {
+function accountKeyFrom(value) {
+  return typeof value === 'string' && Object.hasOwn(TIKTOK_ACCOUNTS, value)
+    ? value
+    : null;
+}
+
+async function saveTokens(data, accountKey) {
+  if (!accountKeyFrom(accountKey)) {
+    throw new Error('Choose which TikTok account you are connecting.');
+  }
   if (!data.open_id || !data.access_token || !data.refresh_token) {
     throw new Error('TikTok returned an incomplete token response.');
   }
@@ -245,8 +258,17 @@ async function saveTokens(data) {
     throw new Error('TikTok authorization did not grant the video.publish scope.');
   }
 
+  const accountForOpenId = await pool.query(
+    'SELECT account_key FROM tiktok_tokens WHERE open_id = $1',
+    [data.open_id]
+  );
+  if (accountForOpenId.rowCount && accountForOpenId.rows[0].account_key !== accountKey) {
+    throw new Error('This TikTok profile is already assigned to the other account slot. Authorize a different TikTok profile.');
+  }
+
   await pool.query(
     `INSERT INTO tiktok_tokens (
+      account_key,
       open_id,
       access_token_enc,
       refresh_token_enc,
@@ -255,8 +277,9 @@ async function saveTokens(data) {
       scopes,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, NOW())
-    ON CONFLICT (open_id) DO UPDATE SET
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    ON CONFLICT (account_key) DO UPDATE SET
+      open_id = EXCLUDED.open_id,
       access_token_enc = EXCLUDED.access_token_enc,
       refresh_token_enc = EXCLUDED.refresh_token_enc,
       access_expires_at = EXCLUDED.access_expires_at,
@@ -264,6 +287,7 @@ async function saveTokens(data) {
       scopes = EXCLUDED.scopes,
       updated_at = NOW()`,
     [
+      accountKey,
       data.open_id,
       encryptToken(data.access_token),
       encryptToken(data.refresh_token),
@@ -274,21 +298,28 @@ async function saveTokens(data) {
   );
 }
 
-async function getStoredTikTokAccount({ forceRefresh = false, rejectedAccessToken = null } = {}) {
+async function getStoredTikTokAccount({
+  accountKey = 'tsr_music',
+  forceRefresh = false,
+  rejectedAccessToken = null
+} = {}) {
+  if (!accountKeyFrom(accountKey)) {
+    throw new Error('Choose a valid TikTok account.');
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const result = await client.query(
-      `SELECT open_id, access_token_enc, refresh_token_enc,
+      `SELECT account_key, open_id, access_token_enc, refresh_token_enc,
               access_expires_at, refresh_expires_at, scopes
        FROM tiktok_tokens
-       ORDER BY updated_at DESC
-       LIMIT 1
-       FOR UPDATE`
+       WHERE account_key = $1
+       FOR UPDATE`,
+      [accountKey]
     );
 
     if (!result.rowCount) {
-      throw new Error('Connect a TikTok account first.');
+      throw new Error(`Connect the ${TIKTOK_ACCOUNTS[accountKey]} TikTok account first.`);
     }
 
     const account = result.rows[0];
@@ -339,9 +370,9 @@ async function getStoredTikTokAccount({ forceRefresh = false, rejectedAccessToke
              refresh_expires_at = $5,
              scopes = $6,
              updated_at = NOW()
-         WHERE open_id = $1`,
+         WHERE account_key = $1`,
         [
-          account.open_id,
+          account.account_key,
           encryptToken(refreshed.access_token),
           encryptToken(refreshed.refresh_token),
           new Date(Date.now() + expiresIn * 1000),
@@ -351,11 +382,12 @@ async function getStoredTikTokAccount({ forceRefresh = false, rejectedAccessToke
       );
 
       await client.query('COMMIT');
-      return { openId: account.open_id, accessToken: refreshed.access_token };
+      return { accountKey: account.account_key, openId: account.open_id, accessToken: refreshed.access_token };
     }
 
     await client.query('COMMIT');
     return {
+      accountKey: account.account_key,
       openId: account.open_id,
       accessToken: storedAccessToken
     };
@@ -367,7 +399,7 @@ async function getStoredTikTokAccount({ forceRefresh = false, rejectedAccessToke
   }
 }
 
-async function tiktokJson(path, accessToken, body) {
+async function tiktokJson(path, accessToken, body, accountKey = 'tsr_music') {
   const request = token => fetch(`https://open.tiktokapis.com${path}`, {
       method: 'POST',
       headers: {
@@ -384,6 +416,7 @@ async function tiktokJson(path, accessToken, body) {
     .test(String(data.error?.code || ''));
   if (response.status === 401 || tokenError) {
     const refreshed = await getStoredTikTokAccount({
+      accountKey,
       forceRefresh: true,
       rejectedAccessToken: accessToken
     });
@@ -472,14 +505,38 @@ app.post('/api/dashboard/login', (req, res) => {
   }
 });
 
-app.get('/api/tiktok/creator-info', requireDashboard, async (req, res) => {
+app.get('/api/tiktok/accounts', requireDashboard, async (req, res) => {
   try {
-    const { accessToken } = await getStoredTikTokAccount();
+    const result = await pool.query('SELECT account_key FROM tiktok_tokens');
+    const connected = new Set(result.rows.map(row => row.account_key));
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      accounts: Object.entries(TIKTOK_ACCOUNTS).map(([key, name]) => ({
+        key,
+        name,
+        connected: connected.has(key)
+      }))
+    });
+  } catch (error) {
+    console.error('TikTok account list failed:', error.message);
+    return res.status(500).json({ error: 'Could not load TikTok accounts.' });
+  }
+});
+
+app.get('/api/tiktok/creator-info', requireDashboard, async (req, res) => {
+  const accountKey = req.query.accountKey == null
+    ? 'tsr_music'
+    : accountKeyFrom(req.query.accountKey);
+  if (!accountKey) return res.status(400).json({ error: 'Choose a valid TikTok account.' });
+
+  try {
+    const { accessToken } = await getStoredTikTokAccount({ accountKey });
 
     const data = await tiktokJson(
       '/v2/post/publish/creator_info/query/',
       accessToken,
-      {}
+      {},
+      accountKey
     );
 
     res.setHeader('Cache-Control', 'no-store');
@@ -497,6 +554,9 @@ app.get('/api/tiktok/creator-info', requireDashboard, async (req, res) => {
     console.error('Creator settings request failed:', error.message);
 
     const reason = String(error.message || '');
+    if (reason.startsWith('Connect the ') && reason.endsWith(' TikTok account first.')) {
+      return res.status(404).json({ error: reason });
+    }
     if (reason.includes('invalid_grant') || reason.includes('refresh authorization expired')) {
       return res.status(401).json({
         error: 'TikTok authorization has expired. Reconnect the account once to restore automatic renewal.'
@@ -563,12 +623,19 @@ app.post(
         });
       }
 
-      const { accessToken } = await getStoredTikTokAccount();
+      const accountKey = req.body.accountKey == null
+        ? 'tsr_music'
+        : accountKeyFrom(req.body.accountKey);
+      if (!accountKey) {
+        return res.status(400).json({ error: 'Choose a valid TikTok account.' });
+      }
+      const { accessToken } = await getStoredTikTokAccount({ accountKey });
 
       const creator = await tiktokJson(
         '/v2/post/publish/creator_info/query/',
         accessToken,
-        {}
+        {},
+        accountKey
       );
 
       if (!(creator.privacy_level_options || []).includes(privacy)) {
@@ -630,7 +697,8 @@ app.post(
             chunk_size: chunkSize,
             total_chunk_count: totalChunks
           }
-        }
+        },
+        accountKey
       );
 
       if (!init.publish_id || !init.upload_url) {
@@ -670,7 +738,7 @@ app.post(
       console.error('TikTok publishing failed:', error.message);
 
       const message =
-        error.message === 'Connect a TikTok account first.'
+        error.message.startsWith('Connect the ') && error.message.endsWith(' TikTok account first.')
           ? error.message
           : error.message.includes('invalid_grant') || error.message.includes('refresh authorization expired')
             ? 'TikTok authorization has expired. Reconnect the account once to restore automatic renewal.'
@@ -695,12 +763,17 @@ app.post('/api/tiktok/publish-status', requireDashboard, async (req, res) => {
       });
     }
 
-    const { accessToken } = await getStoredTikTokAccount();
+    const accountKey = req.body?.accountKey == null
+      ? 'tsr_music'
+      : accountKeyFrom(req.body.accountKey);
+    if (!accountKey) return res.status(400).json({ error: 'Choose a valid TikTok account.' });
+    const { accessToken } = await getStoredTikTokAccount({ accountKey });
 
     const data = await tiktokJson(
       '/v2/post/publish/status/fetch/',
       accessToken,
-      { publish_id: publishId }
+      { publish_id: publishId },
+      accountKey
     );
 
     res.setHeader('Cache-Control', 'no-store');
@@ -725,10 +798,23 @@ app.get('/tiktok/authorize', (req, res) => {
   try {
     const { clientKey } = getTikTokCredentials();
     getEncryptionKey();
+    const accountKey = req.query.account == null
+      ? 'tsr_music'
+      : accountKeyFrom(req.query.account);
+    if (!accountKey) {
+      return res.status(400).send('Choose TSR Music or Broken Reflection before connecting TikTok.');
+    }
 
     const state = crypto.randomBytes(32).toString('hex');
 
     res.cookie('tiktok_oauth_state', state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 10 * 60 * 1000
+    });
+    res.cookie('tiktok_account_slot', accountKey, {
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
@@ -756,12 +842,19 @@ app.get('/tiktok/authorize', (req, res) => {
 });
 
 app.get('/tiktok/callback', async (req, res) => {
-  const expectedState =
-    readCookies(req.headers.cookie).tiktok_oauth_state;
+  const cookies = readCookies(req.headers.cookie);
+  const expectedState = cookies.tiktok_oauth_state;
+  const accountKey = accountKeyFrom(cookies.tiktok_account_slot);
 
   const receivedState = req.query.state;
 
   res.clearCookie('tiktok_oauth_state', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/'
+  });
+  res.clearCookie('tiktok_account_slot', {
     httpOnly: true,
     secure: true,
     sameSite: 'lax',
@@ -793,6 +886,9 @@ app.get('/tiktok/callback', async (req, res) => {
       'TikTok did not return an authorization code.'
     );
   }
+  if (!accountKey) {
+    return res.status(400).send('TikTok account selection expired. Return to the app and connect the account again.');
+  }
 
   try {
     const data = await exchangeToken({
@@ -801,9 +897,9 @@ app.get('/tiktok/callback', async (req, res) => {
       redirect_uri: REDIRECT_URI
     });
 
-    await saveTokens(data);    
+    await saveTokens(data, accountKey);
     return res.redirect(
-    'https://vctr-edu.github.io/tiktok-pipeline/?tiktok=connected'
+    `https://vctr-edu.github.io/tiktok-pipeline/?tiktok=connected&account=${encodeURIComponent(accountKey)}`
     );} 
     catch (error) {
     console.error('TikTok callback failed:', error.message);
@@ -817,8 +913,13 @@ app.get('/tiktok/callback', async (req, res) => {
 // Public profile endpoint retained for frontend compatibility.
 // Protect this endpoint before using the app in production.
 app.get('/api/tiktok/profile', requireDashboard, async (req, res) => {
+  const accountKey = req.query.accountKey == null
+    ? 'tsr_music'
+    : accountKeyFrom(req.query.accountKey);
+  if (!accountKey) return res.status(400).json({ error: 'Choose a valid TikTok account.' });
+
   try {
-    const { openId, accessToken } = await getStoredTikTokAccount();
+    const { openId, accessToken } = await getStoredTikTokAccount({ accountKey });
 
     const response = await fetch(
       'https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url',
@@ -864,7 +965,14 @@ app.get('/api/tiktok/profile', requireDashboard, async (req, res) => {
         avatarUrl: user.avatar_url || null
       }
     });
-  } catch {
+  } catch (error) {
+    if (String(error.message || '').startsWith('Connect the ')) {
+      return res.status(404).json({
+        connected: false,
+        profileAvailable: false,
+        message: error.message
+      });
+    }
     return res.status(500).json({
       connected: false,
       profileAvailable: false,
@@ -876,6 +984,7 @@ app.get('/api/tiktok/profile', requireDashboard, async (req, res) => {
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tiktok_tokens (
+      account_key TEXT NOT NULL DEFAULT 'tsr_music',
       open_id TEXT PRIMARY KEY,
       access_token_enc TEXT NOT NULL,
       refresh_token_enc TEXT,
@@ -888,8 +997,33 @@ async function start() {
 
   await pool.query(`
     ALTER TABLE tiktok_tokens
+      ADD COLUMN IF NOT EXISTS account_key TEXT NOT NULL DEFAULT 'tsr_music',
       ADD COLUMN IF NOT EXISTS refresh_token_enc TEXT,
       ADD COLUMN IF NOT EXISTS refresh_expires_at TIMESTAMPTZ
+  `);
+
+  // If the old single-selector version saved several profiles, keep the most
+  // recently used one in the TSR slot and place the next in the second slot.
+  await pool.query(`
+    WITH ranked AS (
+      SELECT open_id, ROW_NUMBER() OVER (ORDER BY updated_at DESC, open_id) AS slot_rank
+      FROM tiktok_tokens
+      WHERE account_key = 'tsr_music'
+    )
+    UPDATE tiktok_tokens AS token
+    SET account_key = CASE
+      WHEN ranked.slot_rank = 2 THEN 'broken_reflection'
+      WHEN ranked.slot_rank > 2 THEN 'legacy_' || token.open_id
+      ELSE 'tsr_music'
+    END
+    FROM ranked
+    WHERE token.open_id = ranked.open_id
+      AND ranked.slot_rank > 1
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS tiktok_tokens_account_key_unique
+    ON tiktok_tokens (account_key)
   `);
 
   app.listen(PORT, '0.0.0.0', () => {
