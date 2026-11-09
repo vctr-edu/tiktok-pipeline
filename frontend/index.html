@@ -6,119 +6,123 @@
     <meta name="theme-color" content="#050a13" />
     <title>Broken Reflection — New Post</title>
     <link rel="icon" type="image/png" href="./assets/broken-reflection-app-icon.png" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="aurora aurora-left"></div>
-    <div class="aurora aurora-right"></div>
+    <div class="aurora aurora-left" aria-hidden="true"></div>
+    <div class="aurora aurora-right" aria-hidden="true"></div>
     <aside class="sidebar">
-      <a class="brand" href="#" aria-label="Broken Reflection home">
-        <img
-          src="./assets/broken-reflection-app-icon.png"
-          alt="Broken Reflection"
-        />
+      <a class="brand" href="./index.html" aria-label="Broken Reflection home">
+        <img src="./assets/broken-reflection-app-icon.png" alt="" />
         <span>BROKEN<br />REFLECTION</span>
       </a>
-      <nav>
-        <a class="active" href="#post"><span>＋</span> New post</a>
-      </nav>
-      <div class="sidebar-footer"><span class="signal"></span> Local system online</div>
+      <nav aria-label="Main navigation"><a class="active" href="#post"><span>＋</span> New post</a></nav>
+      <div class="sidebar-footer"><span class="signal"></span> Content studio</div>
     </aside>
 
-    <main>
+    <main id="post">
       <header>
         <div>
           <p class="eyebrow">CONTENT STUDIO / TIKTOK</p>
           <h1>Create a new post</h1>
-          <p class="subheading">Compose, preview and prepare your next release.</p>
+          <p class="subheading">Review your video, choose how it appears, then publish to TikTok.</p>
         </div>
-        
-        <button class="account-chip" id="connectButton" type="button">
-          <span class="tiktok-mark">♪</span>
-          <span class="account-info">
-            <span class="account-label">TIKTOK ACCOUNT</span>
-            <span id="connectionLabel">Connect TikTok</span>
-          </span>
-          <span class="connection-status" id="connectionStatus">Connect</span>
-        </button>
-
+        <div class="account-actions">
+          <label class="account-picker-label" for="accountSelect">POSTING ACCOUNT</label>
+          <select id="accountSelect" aria-label="Select TikTok account">
+            <option value="tsr_music">TSR Music</option>
+            <option value="broken_reflection">Broken Reflection</option>
+          </select>
+          <button class="account-chip" id="connectButton" type="button" aria-label="Connect selected TikTok account">
+            <span class="tiktok-mark" aria-hidden="true">♪</span>
+            <span class="account-info"><span class="account-label">TIKTOK ACCOUNT</span><span id="connectionLabel">Connect TikTok</span></span>
+            <span class="connection-status" id="connectionStatus">Connect</span>
+          </button>
+        </div>
       </header>
 
-      <section class="workspace">
+      <section class="workspace" aria-label="Create TikTok post">
         <div class="preview-column">
-          <div class="section-label"><span>01</span> POST PREVIEW</div>
+          <div class="section-label"><span>01</span> VIDEO PREVIEW</div>
           <div class="phone-frame">
-            <div class="cosmos">
-              <div class="stars"></div>
-              <div class="planet"></div>
-              <div class="orbit"></div>
-              <div class="astronaut"></div>
-              <div class="preview-copy"><p>LOST IN<br />THE VOID</p><small>BROKEN REFLECTION</small></div>
-              <div class="preview-bottom"><span>Original sound · Broken Reflection</span><b>♪</b></div>
+            <div class="video-stage" id="videoStage">
+              <video id="videoPreview" playsinline controls hidden aria-label="Selected video preview"></video>
+              <div class="preview-placeholder" id="previewPlaceholder">
+                <span class="preview-play" aria-hidden="true">▶</span>
+                <strong>Your video preview</strong>
+                <small>Choose a video to review it here</small>
+              </div>
             </div>
           </div>
-          <p class="preview-meta">9:16 · 1080 × 1920 · 120 FPS</p>
+          <p class="preview-meta" id="videoMeta">No video selected</p>
+          <div class="creator-card" id="creatorCard">
+            <span class="creator-avatar" aria-hidden="true">♪</span>
+            <span><small>POSTING TO</small><strong id="creatorName">Connect a TikTok account</strong></span>
+          </div>
         </div>
 
         <form class="composer" id="postForm">
           <div class="section-label"><span>02</span> POST DETAILS</div>
-          <label class="upload-zone" for="videoFile">
-            <input id="videoFile" type="file" accept="video/*" />
-            <span class="upload-icon">↑</span>
-            <strong id="fileLabel">Choose a finished video</strong>
-            <small>MP4 · Vertical · Rendered locally</small>
+          <label class="upload-zone" for="videoFile" id="uploadZone">
+            <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/webm" />
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <strong id="fileLabel">Choose a video</strong>
+            <small>MP4, MOV or WebM · Up to 128 MB</small>
           </label>
 
-          <label class="field-label" for="caption">Caption</label>
-          <textarea id="caption" maxlength="2200" placeholder="Share the moment behind this sound..."></textarea>
+          <label class="field-label" for="caption">Caption <span class="optional">Optional</span></label>
+          <textarea id="caption" maxlength="2200" placeholder="Write a caption for your post..."></textarea>
           <div class="caption-tools"><span id="counter">0 / 2200</span><button type="button" id="hashtagButton">+ Add hashtags</button></div>
 
-          <div class="split-fields">
-            <div>
-              <label class="field-label" for="track">Track</label>
-              <select id="track">
-                <option>Shadow Surge</option>
-                <option>Shadow Zone</option>
-              </select>
-            </div>
-            <div>
-              <label class="field-label" for="visibility">Visibility</label>
-              <select id="visibility"><option>Only me — Sandbox</option><option>Public</option></select>
-            </div>
+          <div class="field-block">
+            <label class="field-label" for="privacySelect">Who can watch this video?</label>
+            <select id="privacySelect" disabled required>
+              <option value="">Connect TikTok to load available options</option>
+            </select>
+            <small class="field-hint">Choose a privacy setting. Nothing is selected automatically.</small>
           </div>
 
-          <div class="checks">
-            <label>
-              <input id="allowComments" type="checkbox" checked />
-              Comments enabled
-            </label>
+          <fieldset class="option-group" id="interactionGroup" disabled>
+            <legend>Allow interactions</legend>
+            <label class="toggle-row"><span><strong>Comments</strong><small>Let viewers comment on this post</small></span><input id="allowComments" type="checkbox" /><i aria-hidden="true"></i></label>
+            <label class="toggle-row"><span><strong>Duet</strong><small>Let viewers create a video with yours</small></span><input id="allowDuet" type="checkbox" /><i aria-hidden="true"></i></label>
+            <label class="toggle-row"><span><strong>Stitch</strong><small>Let viewers include part of your video</small></span><input id="allowStitch" type="checkbox" /><i aria-hidden="true"></i></label>
+            <small class="field-hint">Unavailable options are disabled by TikTok for this account.</small>
+          </fieldset>
 
-            <label>
-              <input id="allowDuet" type="checkbox" checked />
-              Duet enabled
-            </label>
+          <fieldset class="option-group disclosure-group" id="disclosureGroup" disabled>
+            <legend>Content disclosure</legend>
+            <label class="toggle-row"><span><strong>Disclose commercial content</strong><small>Turn this on if the post promotes a brand, product or service</small></span><input id="commercialDisclosure" type="checkbox" /><i aria-hidden="true"></i></label>
+            <div id="commercialOptions" class="commercial-options" hidden>
+              <label class="check-row"><input id="brandOrganic" type="checkbox" /><span><strong>Your brand</strong><small>Promoting your own business or product</small></span></label>
+              <label class="check-row"><input id="brandContent" type="checkbox" /><span><strong>Branded content</strong><small>Promoting a third-party brand in a partnership</small></span></label>
+              <p id="disclosureNotice" class="disclosure-notice" hidden></p>
+              <p id="brandedPrivacyNote" class="field-hint" hidden>Branded content cannot use the “Only you” privacy setting.</p>
+            </div>
+          </fieldset>
 
-            <label>
-              <input id="allowStitch" type="checkbox" checked />
-              Stitch enabled
-            </label>
+          <div class="consent-box">
+            <label class="consent-row"><input id="publishConsent" type="checkbox" /><span><span id="consentText">By posting, you agree to TikTok's <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener noreferrer">Music Usage Confirmation</a>.</span><small id="rightsText">Confirm that you have the rights needed to share this video and its audio.</small></span></label>
+            <p id="brandedConsent" hidden>By posting, you also agree to TikTok's <a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noopener noreferrer">Branded Content Policy</a>.</p>
           </div>
 
-          <div class="quality-bar"><span class="quality-dot"></span><div><strong>Ready for quality check</strong><small>Audio, captions and rights will be validated before publishing.</small></div></div>
-          
-          <button class="publish-button" type="submit">
-            <span>✦</span> POST
-          </button>
+          <section class="auth-panel" id="publishingPanel" aria-label="Publishing access">
+            <h2>Publishing access</h2>
+            <label class="field-label" for="dashboardPassword">Studio password</label>
+            <input id="dashboardPassword" type="password" autocomplete="current-password" placeholder="Enter your studio password" />
+            <div class="auth-actions"><button id="dashboardLogin" type="button">Sign in</button><button id="dashboardLogout" type="button" hidden>Sign out</button></div>
+            <p id="dashboardStatus" role="status" aria-live="polite">Sign in to load your TikTok publishing settings.</p>
+          </section>
+
+          <div class="quality-bar" id="qualityBar"><span class="quality-dot"></span><div><strong id="qualityTitle">Ready when you are</strong><small id="qualityMessage">Select a video and connect TikTok to review post settings.</small></div></div>
+          <button class="publish-button" id="publishButton" type="submit" disabled><span aria-hidden="true">↗</span> POST TO TIKTOK</button>
+          <p class="form-note">TikTok may take a few minutes to process your post.</p>
           <p id="postStatus" class="post-status" role="status" aria-live="polite"></p>
-
-          
         </form>
       </section>
     </main>
-    <script src="app.js"></script>
-    <footer class="site-footer">
-      <a href="./terms.html">Terms of Service</a>
-      <a href="./privacy.html">Privacy Policy</a>
-    </footer>
+
+    <footer class="site-footer"><a href="./terms.html">Terms of Service</a><a href="./privacy.html">Privacy Policy</a></footer>
+    <script src="./app.js"></script>
   </body>
 </html>
