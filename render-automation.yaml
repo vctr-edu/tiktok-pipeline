@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: br-minio-storage
+    runtime: image
+    image:
+      url: quay.io/minio/minio:latest
+    plan: starter
+    region: oregon
+    dockerCommand: server /data --address ":10000" --console-address ":10001"
+    disk:
+      name: br-media
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: MINIO_ROOT_USER
+        generateValue: true
+      - key: MINIO_ROOT_PASSWORD
+        generateValue: true
+      - key: PORT
+        value: "10000"
+
+  - type: cron
+    name: br-video-publisher
+    runtime: docker
+    dockerfilePath: ./cloud_automation/Dockerfile
+    region: oregon
+    schedule: "0 3 * * *"
+    envVars:
+      - key: ENABLE_AUTO_PUBLISH
+        value: "false"
+      - key: TIKTOK_API_URL
+        value: https://broken-reflection-api.onrender.com
+      - key: TIKTOK_ACCOUNT
+        value: broken_reflection
+      - key: TIKTOK_PRIVACY
+        value: PUBLIC_TO_EVERYONE
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: S3_ENDPOINT_URL
+        value: http://br-minio-storage:10000
+      - key: S3_ACCESS_KEY
+        fromService:
+          type: web
+          name: br-minio-storage
+          envVarKey: MINIO_ROOT_USER
+      - key: S3_SECRET_KEY
+        fromService:
+          type: web
+          name: br-minio-storage
+          envVarKey: MINIO_ROOT_PASSWORD
+      - key: S3_BUCKET
+        value: broken-reflection-media
